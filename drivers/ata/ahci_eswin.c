@@ -59,7 +59,7 @@
 #define SATA_LOS_LEVEL                0x9
 #define SATA_LOS_BIAS                 (0x02 << 16)
 #define SATA_REF_REPEATCLK_EN         BIT(0)
-#define SATA_REF_USE_PAD              BIT(20)
+#define SATA_REF_SSP_EN               BIT(20)
 #define SATA_P0_AMPLITUDE_GEN1        0x42
 #define SATA_P0_AMPLITUDE_GEN2        (0x46 << 8)
 #define SATA_P0_AMPLITUDE_GEN3        (0x73 << 16)
@@ -129,7 +129,7 @@ static int eswin_sata_sid_cfg(struct device *dev)
     ret = win2030_dynm_sid_enable(dev_to_node(dev));
     if (ret < 0)
         dev_err(dev, "failed to config sata streamID(%d)!\n", sid);
-     else
+    else
         dev_dbg(dev, "success to config sata streamID(%d)!\n", sid);
     pr_err("eswin_sata_sid_cfg success\n");
 
@@ -150,7 +150,7 @@ static int eswin_sata_init(struct device *dev)
     regmap_write(regmap, SATA_PHY_CTRL1, (SATA_P0_PHY_TX_PREEMPH_GEN1|SATA_P0_PHY_TX_PREEMPH_GEN2|SATA_P0_PHY_TX_PREEMPH_GEN3));
     regmap_write(regmap, SATA_LOS_IDEN, SATA_LOS_LEVEL|SATA_LOS_BIAS);
     regmap_write(regmap, SATA_AXI_LP_CTRL, (SATA_M_CSYSREQ|SATA_S_CSYSREQ));
-    regmap_write(regmap, SATA_REG_CTRL, (SATA_REF_REPEATCLK_EN|SATA_REF_USE_PAD));
+    regmap_write(regmap, SATA_REG_CTRL, (SATA_REF_REPEATCLK_EN|SATA_REF_SSP_EN));
     regmap_write(regmap, SATA_MPLL_CTRL, SATA_MPLL_MULTIPLIER);
     regmap_write(regmap, SATA_RESET_CTRL, 0x0);
 
@@ -191,6 +191,86 @@ static int eswin_ahci_platform_resets(struct ahci_host_priv *hpriv,
 	return 0;
 }
 
+static int eswin_clk_enable(struct device *dev)
+{
+    struct clk *aclk;
+    struct clk *cfg_clk;
+    int ret;
+
+    aclk = devm_clk_get(dev, "aclk");
+	if (IS_ERR(aclk)) {
+        return PTR_ERR(aclk);
+    }
+    cfg_clk = devm_clk_get(dev, "cfg_clk");
+	if (IS_ERR(cfg_clk)) {
+        return PTR_ERR(cfg_clk);
+    }
+
+    ret = clk_prepare_enable(aclk);
+    if (ret) {
+        pr_err("[%s:%d], Couldn't enable aclk\n",
+            __func__, __LINE__);
+        goto err_aclk;
+    }
+    ret = clk_prepare_enable(cfg_clk);
+    if (ret) {
+        pr_err("[%s:%d], Couldn't enable cfg_clk\n",
+             __func__, __LINE__);
+        goto err_cfg_clk;
+    }
+    return ret;
+
+err_aclk:
+    clk_disable_unprepare(aclk);
+err_cfg_clk:
+    clk_disable_unprepare(cfg_clk);
+    return ret;
+}
+
+static int eswin_clk_disable(struct device *dev)
+{
+    struct clk *aclk;
+    struct clk *cfg_clk;
+
+    aclk = devm_clk_get(dev, "aclk");
+	if (IS_ERR(aclk)) {
+        return PTR_ERR(aclk);
+    }
+    cfg_clk = devm_clk_get(dev, "cfg_clk");
+	if (IS_ERR(cfg_clk)) {
+        return PTR_ERR(cfg_clk);
+    }
+
+    clk_disable_unprepare(aclk);
+    clk_disable_unprepare(cfg_clk);
+
+    return 0;
+}
+
+static int sata_clk_enable(struct device *dev)
+{
+    struct regmap *regmap;
+    regmap = syscon_regmap_lookup_by_phandle(dev->of_node, "eswin,hsp_sp_csr");
+    if (IS_ERR(regmap)) {
+        dev_dbg(dev, "No hsp_sp_csr phandle specified\n");
+        return -1;
+    }
+    regmap_write(regmap, SATA_REG_CTRL, (SATA_REF_REPEATCLK_EN|SATA_REF_SSP_EN));
+    return 0;
+}
+
+static int sata_clk_disable(struct device *dev)
+{
+    struct regmap *regmap;
+    regmap = syscon_regmap_lookup_by_phandle(dev->of_node, "eswin,hsp_sp_csr");
+    if (IS_ERR(regmap)) {
+        dev_dbg(dev, "No hsp_sp_csr phandle specified\n");
+        return -1;
+    }
+    regmap_write(regmap, SATA_REG_CTRL, SATA_REF_REPEATCLK_EN);
+    return 0;
+}
+
 static int ahci_probe(struct platform_device *pdev)
 {
     struct device *dev = &pdev->dev;
@@ -213,9 +293,17 @@ static int ahci_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-    ret = ahci_platform_enable_resources(hpriv);
+    ret = ahci_platform_enable_regulators(hpriv);
 	if (ret)
 		return ret;
+
+    ret = eswin_clk_enable(dev);
+    if (ret)
+        return ret;
+
+    ret = sata_clk_enable(dev);
+    if (ret)
+        return ret;
 
     eswin_sata_init(dev);
 
@@ -255,10 +343,14 @@ static int ahci_remove(struct platform_device *pdev)
 
     ata_platform_remove_one(pdev);
 
+    eswin_clk_disable(&pdev->dev);
+
+    sata_clk_disable(&pdev->dev);
+
     return 0;
 }
 
-static int eswin_ahci_suspend(struct device *dev)
+static int __maybe_unused eswin_ahci_suspend(struct device *dev)
 {
 	int ret;
 
@@ -267,18 +359,18 @@ static int eswin_ahci_suspend(struct device *dev)
 	ret = ahci_platform_suspend(dev);
 	if (ret)
 		return ret;
-
+    sata_clk_disable(dev);
 	return 0;
 }
 
-static int eswin_ahci_resume(struct device *dev)
+static int __maybe_unused eswin_ahci_resume(struct device *dev)
 {
 	int ret;
 
 	ret = ahci_platform_resume(dev);
 	if (ret)
 		return ret;
-
+    sata_clk_enable(dev);
 	win2030_tbu_power(dev, true);
 
 	return 0;

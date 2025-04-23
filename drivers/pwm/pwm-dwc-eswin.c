@@ -1,19 +1,9 @@
+
 // SPDX-License-Identifier: GPL-2.0
 /*
- * DesignWare PWM Controller driver
- *
- * Copyright (C) 2018-2020 Intel Corporation
- *
- * Author: Felipe Balbi (Intel)
- * Author: Jarkko Nikula <jarkko.nikula@linux.intel.com>
- * Author: Raymond Tan <raymond.tan@intel.com>
- *
- * Limitations:
- * - The hardware cannot generate a 0 % or 100 % duty cycle. Both high and low
- *   periods are one or more input clock periods long.
+ * ESWIN cipher serivce driver
  *
  * Copyright 2024, Beijing ESWIN Computing Technology Co., Ltd.. All rights reserved.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Author: xuxiang@eswincomputing.com
+ * Authors: xuxiang@eswincomputing.com
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -37,6 +27,8 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/pwm.h>
+#include <linux/pinctrl/consumer.h>
+#include <linux/gpio/consumer.h>
 
 #define DWC_TIM_LD_CNT(n)	((n) * 0x14)
 #define DWC_TIM_LD_CNT2(n)	(((n) * 4) + 0xb0)
@@ -73,6 +65,7 @@ struct dwc_pwm {
 	struct clk *clk;
 	struct reset_control *rst;
 	struct dwc_pwm_ctx ctx[DWC_TIMERS_TOTAL];
+	struct gpio_desc *gpio_fan;
 };
 #define to_dwc_pwm(p)	(container_of((p), struct dwc_pwm, chip))
 
@@ -106,8 +99,8 @@ static int __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 {
 	u64 tmp, duty = state->duty_cycle;
 	u32 ctrl;
-	u32 high;
-	u32 low;
+	u32 high=0;
+	u32 low=0;
 
 	if (duty >= state->period)
 		duty = state->period - DWC_CLK_PERIOD_NS;
@@ -278,13 +271,19 @@ static int dwc_pwm_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	dwc->gpio_fan = devm_gpiod_get(&pdev->dev, "fan", GPIOD_OUT_LOW);
+	if (IS_ERR(dwc->gpio_fan)) {
+		dev_err(&pdev->dev, "failed to get fan gpio, err: %ld\n", PTR_ERR(dwc->gpio_fan));
+		return PTR_ERR(dwc->gpio_fan);
+	}
 
 	ret = devm_pwmchip_add(dev, &dwc->chip);
 	if (ret)
 		return ret;
 
-	pm_runtime_put(dev);
-	pm_runtime_allow(dev);
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
+	pm_runtime_get_noresume(dev);
 
 	return 0;
 }
@@ -299,12 +298,65 @@ static int dwc_pwm_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int dwc_pwm_runtime_suspend(struct device *dev)
+{
+	struct dwc_pwm *dwc = dev_get_drvdata(dev);
+	int ret, i;
+
+	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
+		if (dwc->chip.pwms[i].state.enabled) {
+			dev_err(dev, "PWM %u in use by consumer (%s)\n",
+				i, dwc->chip.pwms[i].label);
+			return -EBUSY;
+		}
+	}
+
+	clk_disable_unprepare(dwc->clk);
+	ret = pinctrl_pm_select_sleep_state(dev);
+	if (ret) {
+		dev_err(dev, "failed to select sleep state: %d\n", ret);
+		clk_prepare_enable(dwc->clk);
+		return ret;
+	}
+
+	gpiod_set_value(dwc->gpio_fan, 0);
+
+	return 0;
+}
+
+static int dwc_pwm_runtime_resume(struct device *dev)
+{
+	struct dwc_pwm *dwc = dev_get_drvdata(dev);
+	int ret;
+
+	gpiod_set_value(dwc->gpio_fan, 1);
+	ret = pinctrl_pm_select_default_state(dev);
+	if (ret) {
+		dev_err(dev, "failed to select default state: %d\n", ret);
+		return ret;
+	}
+
+	ret = clk_prepare_enable(dwc->clk);
+	if (ret) {
+		dev_err(dev, "failed to enable clock: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 #ifdef CONFIG_PM_SLEEP
 static int dwc_pwm_suspend(struct device *dev)
 {
 	struct dwc_pwm *dwc = dev_get_drvdata(dev);
-	int i;
+	int i, ret;
 
+	dev_dbg(dev, "%s\n", __func__);
+	if (pm_runtime_status_suspended(dev)) {
+		ret = dwc_pwm_runtime_resume(dev);
+		if (ret)
+			return ret;
+	}
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
 		if (dwc->chip.pwms[i].state.enabled) {
 			dev_err(dev, "PWM %u in use by consumer (%s)\n",
@@ -316,13 +368,37 @@ static int dwc_pwm_suspend(struct device *dev)
 		dwc->ctx[i].ctrl = dwc_pwm_readl(dwc, DWC_TIM_CTRL(i));
 	}
 
+	clk_disable_unprepare(dwc->clk);
+	ret = pinctrl_pm_select_sleep_state(dev);
+	if (ret) {
+		dev_err(dev, "failed to select sleep state: %d\n", ret);
+		clk_prepare_enable(dwc->clk);
+		return ret;
+	}
+
+	gpiod_set_value(dwc->gpio_fan, 0);
+
 	return 0;
 }
 
 static int dwc_pwm_resume(struct device *dev)
 {
 	struct dwc_pwm *dwc = dev_get_drvdata(dev);
-	int i;
+	int ret, i;
+
+	dev_dbg(dev, "%s\n", __func__);
+	gpiod_set_value(dwc->gpio_fan, 1);
+	ret = pinctrl_pm_select_default_state(dev);
+	if (ret) {
+		dev_err(dev, "failed to select default state: %d\n", ret);
+		return ret;
+	}
+
+	ret = clk_prepare_enable(dwc->clk);
+	if (ret) {
+		dev_err(dev, "failed to enable clock: %d\n", ret);
+		return ret;
+	}
 
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
 		dwc_pwm_writel(dwc, dwc->ctx[i].cnt, DWC_TIM_LD_CNT(i));
@@ -330,12 +406,18 @@ static int dwc_pwm_resume(struct device *dev)
 		dwc_pwm_writel(dwc, dwc->ctx[i].ctrl, DWC_TIM_CTRL(i));
 	}
 
+	if (pm_runtime_status_suspended(dev))
+		dwc_pwm_runtime_suspend(dev);
+
 	return 0;
 }
 #endif
 
-static SIMPLE_DEV_PM_OPS(dwc_pwm_pm_ops, dwc_pwm_suspend, dwc_pwm_resume);
-
+static const struct dev_pm_ops dwc_pwm_pm_ops = {
+	SET_RUNTIME_PM_OPS(dwc_pwm_runtime_suspend, dwc_pwm_runtime_resume, NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(dwc_pwm_suspend, dwc_pwm_resume)
+};
+ 
 static const struct of_device_id dwc_pwm_id_table[] = {
 	{ .compatible = "eswin,pwm-eswin", },
 	{ /* sentinel */ }
@@ -347,7 +429,7 @@ static struct platform_driver dwc_pwm_driver = {
 	.remove = dwc_pwm_remove,
 	.driver = {
 		.name	= "dwc-pwm",
-		//.pm = &dwc_pwm_pm_ops,
+		.pm = &dwc_pwm_pm_ops,
 		.of_match_table = of_match_ptr(dwc_pwm_id_table),
 	},
 };

@@ -121,6 +121,7 @@
 };
 
 &d0_pmu {
+	npu-supply=<&npu_vcc1>;
 	status = "okay";
 };
 
@@ -676,7 +677,7 @@
 
 &d0_i2c1 {
 	status = "okay";
-	es5430@f {
+	es5340@f {
 		compatible = "einno,es5340";
 		reg = <0xf>;
 		eswin,regulator_default-microvolt=<1000000>;
@@ -797,6 +798,10 @@
 &pwm0 {
 	/* fan */
 	status = "okay";
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&pinctrl_pwm0_default>;
+	pinctrl-1 = <&pinctrl_gpio68_default>;
+	fan-gpios = <&portc 4 GPIO_ACTIVE_LOW>;
 };
 
 &pvt0 {
@@ -828,19 +833,19 @@
 };
 
 &timer0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &timer1 {
-	status = "okay";
+	status = "disabled";
 };
 
 &timer2 {
-	status = "okay";
+	status = "disabled";
 };
 
 &timer3 {
-	status = "okay";
+	status = "disabled";
 };
 
 &pinctrl {

@@ -3,7 +3,6 @@
  * ESWIN AI driver
  *
  * Copyright 2024, Beijing ESWIN Computing Technology Co., Ltd.. All rights reserved.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -541,13 +540,37 @@ static int npu_devfreq_get_cur_freq(struct device *dev, unsigned long *freq)
 	*freq = nvdla_dev->rate;
 	return 0;
 }
+static void eswin_exit(struct device *dev)
+{
+
+}
+
+static int eswin_get_dev_status(struct device *dev,
+				     struct devfreq_dev_status *stat)
+{
+	struct nvdla_device *nvdla_dev = dev_get_drvdata(dev);
+	unsigned long rate;
+	stat->busy_time = 1024;	
+	stat->total_time = 1024;
+	stat->current_frequency = nvdla_dev->rate;
+
+	return 0;
+}
 
 static struct devfreq_dev_profile npu_devfreq_profile = {
 	.initial_freq = NPU_CORE_CLK_HIGHEST,
 	.timer = DEVFREQ_TIMER_DELAYED,
-	.polling_ms = 1000,
+	.polling_ms = 100,
 	.target = npu_devfreq_target,
 	.get_cur_freq = npu_devfreq_get_cur_freq,
+	.get_dev_status = eswin_get_dev_status,
+	.exit = eswin_exit,
+	.is_cooling_device = true,
+};
+static struct devfreq_simple_ondemand_data ondemand_data =
+{
+	.upthreshold =80,
+	.downdifferential=10,
 };
 #endif
 
@@ -706,20 +729,19 @@ static int32_t edla_probe(struct platform_device *pdev)
 		goto err_init_reset;
 	}
 	
-	df = devm_devfreq_add_device(dev, &npu_devfreq_profile, "userspace", NULL);
+	df = devm_devfreq_add_device(dev, &npu_devfreq_profile, DEVFREQ_GOV_SIMPLE_ONDEMAND, &ondemand_data);
 	if (IS_ERR(df)) {
 		err = PTR_ERR(df);
 		dev_err(dev, "%s, %d, Failed to add devfreq device, ret=%d.\n", __func__, __LINE__, err);
 		goto err_init_reset;
 	}
+	/* Register opp_notifier to catch the change of OPP  ????*/
+	err = devm_devfreq_register_opp_notifier(&pdev->dev, df);
+	if (err < 0) {
+		dev_err(&pdev->dev, "failed to register opp notifier\n");
+		return err;
+	}
 #endif
-
-
-	pm_runtime_set_autosuspend_delay(dev, 5000);
-	pm_runtime_use_autosuspend(dev);
-	pm_runtime_set_active(dev);
-	pm_runtime_enable(dev);
-	pm_runtime_get_noresume(dev);
 
 	err = npu_init_reset(nvdla_dev);
 	if (err)
@@ -787,8 +809,6 @@ static int32_t edla_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to register npu device\n");
 		goto err_create_dev;
 	}
-	pm_runtime_mark_last_busy(dev);
-	pm_runtime_put_autosuspend(dev);
 	return err;
 err_create_dev:
 	vfree(nvdla_dev->pause_op_list);
@@ -803,10 +823,6 @@ err_iomap_e31:
 	npu_tbu_power(dev, false);
 err_init_mbox:
 err_init_reset:
-	pm_runtime_put_noidle(dev);
-	pm_runtime_disable(dev);
-	pm_runtime_set_suspended(dev);
-	pm_runtime_dont_use_autosuspend(dev);
 	npu_disable_clock(nvdla_dev);
 err_iomap_program:
 	release_mem_region(E31_PROGRAM_DTIM_BASE + nvdla_dev->numa_id * NPU_DIE_REG_OFFSET, E31_PROGRAM_DTIM_SIZE);
@@ -837,9 +853,6 @@ static int32_t __exit edla_remove(struct platform_device *pdev)
 	destory_npu_dev(nvdla_dev->numa_id);
 	npu_uninit_mbox(nvdla_dev);
 	npu_dev_reset(nvdla_dev);
-	pm_runtime_disable(&nvdla_dev->pdev->dev);
-	pm_runtime_set_suspended(&nvdla_dev->pdev->dev);
-	pm_runtime_dont_use_autosuspend(&nvdla_dev->pdev->dev);
 
 	/* reset the uart1 mutex lock */
 	reset_uart_mutex(nvdla_dev);
@@ -903,14 +916,16 @@ int __maybe_unused npu_runtime_resume(struct device *dev)
 
 int __maybe_unused npu_suspend(struct device *dev)
 {
-	int ret;
 	struct nvdla_device *nvdla_dev = dev_get_drvdata(dev);
 	struct win_engine *engine = (struct win_engine *)nvdla_dev->win_engine;
+	int is_enable = 0;
+	int ret = 0;
 
-	dla_debug("%s, %d, into..\n", __func__, __LINE__);
-	ret = npu_pm_get(nvdla_dev);
-	if (ret < 0) {
-		dla_error("%s, %d, npu pm get err.\n", __func__, __LINE__);
+	dev_dbg(dev, "%s, %d, into..\n", __func__, __LINE__);
+	ret = npu_hardware_reset(NULL);
+	if (ret) {
+		dla_error("npu suspend err, ret=%d.\n", ret);
+		nvdla_dev->is_suspend =  false;
 		return ret;
 	}
 	memset(engine->host_node, 0, sizeof(host_node_t));
@@ -923,8 +938,6 @@ int __maybe_unused npu_suspend(struct device *dev)
 	npu_dev_reset(nvdla_dev);
 	npu_uninit_ipc(nvdla_dev);
 	reset_uart_mutex(nvdla_dev);
-	pm_runtime_mark_last_busy(dev);
-	pm_runtime_put_noidle(dev);
 
 	npu_tbu_power(dev, false);
 	npu_disable_clock(nvdla_dev);
@@ -932,9 +945,14 @@ int __maybe_unused npu_suspend(struct device *dev)
 	npu_dev_assert(nvdla_dev);
 	if ((NULL != nvdla_dev->npu_regulator) && (!IS_ERR(nvdla_dev->npu_regulator)))
 	{
-		regulator_disable(nvdla_dev->npu_regulator);
+		is_enable = regulator_is_enabled(nvdla_dev->npu_regulator);
+		if(1 == is_enable)
+		{
+			regulator_disable(nvdla_dev->npu_regulator);
+			mdelay(20);
+		}
 	}
-
+	nvdla_dev->is_suspend =  true;
 	return 0;
 }
 
@@ -942,74 +960,84 @@ int __maybe_unused npu_resume(struct device *dev)
 {
 	int ret;
 	int is_enable = 0;
+	struct nvdla_device *ndev = dev_get_drvdata(dev);
 
-	struct nvdla_device *nvdla_dev = dev_get_drvdata(dev);
+	dev_dbg(dev, "%s, %d, into..\n", __func__, __LINE__);
 
-	if ((NULL != nvdla_dev->npu_regulator) && (!IS_ERR(nvdla_dev->npu_regulator)))
+	if(ndev->is_suspend == false) {
+		dla_error("%s, NPU was not suspended at last time.\n", __func__);
+		return -EACCES;
+	}
+
+	if ((NULL != ndev->npu_regulator) && (!IS_ERR(ndev->npu_regulator)))
 	{
-		is_enable = regulator_is_enabled(nvdla_dev->npu_regulator);
+		is_enable = regulator_is_enabled(ndev->npu_regulator);
 		if(0 == is_enable)
 		{
 			mdelay(20);
 		}
-		ret = regulator_enable(nvdla_dev->npu_regulator);
+		ret = regulator_enable(ndev->npu_regulator);
 		if(ret < 0)
 		{
 			dla_error("%s, %d regulator_enable eror\n", __func__, __LINE__);
+			return ret;
 		}
 		if(0 == is_enable)
 		{
 			mdelay(20);
 		}
 	}
-	ret = npu_enable_clock(nvdla_dev);
+	ret = npu_enable_clock(ndev);
 	if (ret < 0) {
-		return ret;
+		dla_error("error enable clock, ret=%d.\n", ret);
+		goto err_clk;
 	}
-	ret = npu_hardware_reset(nvdla_dev);
+	ret = npu_hardware_reset(ndev);
 	if (ret) {
 		dla_error("hardware reset error, ret=%d.\n", ret);
-		return -EIO;
+		goto err_reset;
 	}
-
-	pm_runtime_get_noresume(dev);
-
-	ret = npu_init_reset(nvdla_dev);
+	ret = npu_dev_deassert(ndev);
 	if (ret < 0) {
 		goto err_reset;
 	}
-	ret = npu_init_mbox(nvdla_dev);
+	ret = npu_init_mbox(ndev);
 	if (ret) {
 		dev_err(dev, "npu init mailbox error, ret = %d.\n", ret);
-		goto err_reset;
+		goto err_init_mbox;
 	}
 	npu_tbu_power(dev, true);
 	/* config streamID of NPU_DMA */
 
-	ret = npu_e31_load_fw(nvdla_dev);
+	ret = npu_e31_load_fw(ndev);
 	if (ret) {
 		dev_err(dev, "load e31 fw error.\n");
 		goto err_load_firm;
 	}
-	npu_dma_sid_cfg(nvdla_dev->base, WIN2030_SID_NPU_DMA);
-	npu_hw_init(nvdla_dev);
-	ret = npu_init_ipc(nvdla_dev);
+	npu_dma_sid_cfg(ndev->base, WIN2030_SID_NPU_DMA);
+	npu_hw_init(ndev);
+	ret = npu_init_ipc(ndev);
 	if (ret) {
 		dev_err(dev, "npu init ipc error.\n");
 		goto err_ipc;
 	}
 
-	pm_runtime_mark_last_busy(dev);
-	pm_runtime_put_autosuspend(dev);
-
 	return 0;
 
 err_ipc:
-	npu_init_reset(nvdla_dev);
 err_load_firm:
+	npu_uninit_mbox(ndev);
 	npu_tbu_power(dev, false);
+err_init_mbox:
+	npu_dev_assert(ndev);
 err_reset:
-	npu_disable_clock(nvdla_dev);
+	npu_disable_clock(ndev);
+err_clk:
+	if ((NULL != ndev->npu_regulator) && (!IS_ERR(ndev->npu_regulator)))
+	{
+		regulator_disable(ndev->npu_regulator);
+	}
+
 	return ret;
 }
 

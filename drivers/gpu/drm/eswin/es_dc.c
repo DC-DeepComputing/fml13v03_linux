@@ -281,6 +281,7 @@ static void dc_deinit(struct device *dev)
 {
 	struct es_dc *dc = dev_get_drvdata(dev);
 
+	es_dc_clk_configs(dev, true);
 	dc_hw_enable_interrupt(&dc->hw, 0);
 	dc_hw_deinit(&dc->hw);
 	es_dc_clk_configs(dev, false);
@@ -339,12 +340,60 @@ static void es_dc_dump_disable(struct device *dev)
 	dc_hw_disable_dump(&dc->hw);
 }
 
+static int es_dc_suspend(struct device *dev, struct drm_device *drm_dev)
+{
+	struct es_dc *dc = dev_get_drvdata(dev);
+	int ret = 0;
+
+	disable_irq(dc->irq);
+
+	dc_deinit(dev);
+
+	es_drm_iommu_detach_device(drm_dev, dev);
+
+	es_dc_clk_configs(dev, false);
+
+	return ret;
+}
+
+static int es_dc_resume(struct device *dev, struct drm_device *drm_dev)
+{
+	struct es_dc *dc = dev_get_drvdata(dev);
+	int ret = 0;
+#ifdef CONFIG_ESWIN_MMU
+	struct es_drm_private *priv = drm_dev->dev_private;
+#endif
+
+	es_dc_clk_configs(dev, true);
+	ret = dc_init(dev);
+	if (ret < 0) {
+		dev_err(dev, "Failed to initialize DC hardware.\n");
+		return ret;
+	}
+
+#ifdef CONFIG_ESWIN_MMU
+	ret = dc_hw_mmu_init(&dc->hw, priv->mmu);
+	if (ret < 0) {
+		dev_err(dev, "Failed to dc_hw_mmu_init\n");
+	}
+#endif
+
+	ret = es_drm_iommu_attach_device(drm_dev, dev);
+	if (ret < 0) {
+		dev_err(dev, "Failed to attached iommu device.\n");
+	}
+	enable_irq(dc->irq);
+
+	return 0;
+}
+
 static void es_dc_enable(struct device *dev, struct drm_crtc *crtc)
 {
 	struct es_dc *dc = dev_get_drvdata(dev);
 	struct es_crtc_state *crtc_state = to_es_crtc_state(crtc->state);
 	struct drm_display_mode *mode = &crtc->state->adjusted_mode;
 	struct dc_hw_display display;
+	struct dc_hw_cursor cursor = { 0 };
 	int ret;
 
 	display.bus_format = crtc_state->output_fmt;
@@ -406,6 +455,8 @@ static void es_dc_enable(struct device *dev, struct drm_crtc *crtc)
 #endif
 
 	dc_hw_setup_display(&dc->hw, &display);
+	cursor.enable = false;
+	dc_hw_update_cursor(&dc->hw, &cursor);
 }
 
 static void es_dc_disable(struct device *dev)
@@ -880,11 +931,14 @@ static const struct es_plane_funcs dc_plane_funcs = {
 static const struct es_dc_funcs dc_funcs = {
 	.dump_enable = es_dc_dump_enable,
 	.dump_disable = es_dc_dump_disable,
+	.dc_suspend = es_dc_suspend,
+	.dc_resume = es_dc_resume,
 };
 
 static int dc_bind(struct device *dev, struct device *master, void *data)
 {
 	struct drm_device *drm_dev = data;
+	struct platform_device *pdev = to_platform_device(dev);
 #ifdef CONFIG_ESWIN_MMU
 	struct es_drm_private *priv = drm_dev->dev_private;
 #endif
@@ -908,6 +962,16 @@ static int dc_bind(struct device *dev, struct device *master, void *data)
 		return ret;
 	}
 
+	if (!dc->irq) {
+		dc->irq = platform_get_irq(pdev, 0);
+		ret = devm_request_irq(dev, dc->irq, dc_isr, 0, dev_name(dev),
+				       dc);
+		if (ret < 0) {
+			dev_err(dev, "Failed to install irq:%u.\n", dc->irq);
+			return ret;
+		}
+	}
+
 #ifdef CONFIG_ESWIN_MMU
 	if (priv->mmu_constructed == false) {
 		ret = dc_mmu_construct(priv->dma_dev, &priv->mmu);
@@ -915,6 +979,7 @@ static int dc_bind(struct device *dev, struct device *master, void *data)
 			dev_err(dev, "failed to construct DC MMU\n");
 			goto err_clean_dc;
 		}
+
 		priv->mmu_constructed = true;
 	}
 	ret = dc_hw_mmu_init(&dc->hw, priv->mmu);
@@ -977,7 +1042,6 @@ static int dc_bind(struct device *dev, struct device *master, void *data)
 				plane_info->max_height;
 		}
 	}
-
 	dc->crtc = crtc;
 	dc->funcs = &dc_funcs;
 
@@ -1044,7 +1108,7 @@ static int dc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct es_dc *dc;
-	int irq, ret;
+	int ret;
 
 	dc = devm_kzalloc(dev, sizeof(*dc), GFP_KERNEL);
 	if (!dc)
@@ -1063,13 +1127,6 @@ static int dc_probe(struct platform_device *pdev)
 	dc->hw.reg_base = devm_platform_ioremap_resource(pdev, 2);
 	if (IS_ERR(dc->hw.reg_base))
 		return PTR_ERR(dc->hw.reg_base);
-
-	irq = platform_get_irq(pdev, 0);
-	ret = devm_request_irq(dev, irq, dc_isr, 0, dev_name(dev), dc);
-	if (ret < 0) {
-		dev_err(dev, "Failed to install irq:%u.\n", irq);
-		return ret;
-	}
 
 	dc->vo_mux = devm_clk_get(dev, "vo_mux");
 	if (IS_ERR(dc->vo_mux)) {
@@ -1166,7 +1223,9 @@ static int dc_probe(struct platform_device *pdev)
 	}
 
 	dev_set_drvdata(dev, dc);
+
 	vo_qos_cfg();
+
 	return component_add(dev, &dc_component_ops);
 }
 

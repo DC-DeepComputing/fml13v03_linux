@@ -126,7 +126,7 @@
 
 		mmz_nid_0_part_0 {
 			compatible = "eswin-reserve-memory";
-			reg = <0x3 0x0 0x1 0x60000000>;
+			reg = <0x3 0x0 0x1 0x80000000>;
 			no-map;
 		};
 
@@ -147,7 +147,7 @@
 
 		mmz_nid_1_part_0 {
 			compatible = "eswin-reserve-memory";
-			reg = <0x22 0x80000000 0x1 0x60000000>;
+			reg = <0x22 0x80000000 0x1 0x80000000>;
 			no-map;
 		};
 	};
@@ -296,10 +296,12 @@
 };
 
 &d0_pmu {
+	npu-supply=<&d0_npu_vcc>;
 	status = "okay";
 };
 &d1_pmu {
-	status = "disabled";
+	npu-supply=<&d1_npu_vcc>;
+	status = "okay";
 };
 
 &ddr0 {
@@ -1501,6 +1503,10 @@
 &pwm0 {
 	/* fan */
 	status = "okay";
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&pinctrl_die0_pwm0_default>;
+	pinctrl-1 = <&pinctrl_die0_gpio68_default>;
+	fan-gpios = <&portc 4 GPIO_ACTIVE_HIGH>;
 };
 
 &d1_pwm0 {

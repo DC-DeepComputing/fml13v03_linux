@@ -39,7 +39,7 @@
 #include "hetero_arch.h"
 #include "hetero_host.h"
 extern void handle_perf_switch(struct nvdla_device *ndev, bool enable);
-extern int get_perf_data(struct nvdla_device *ndev);
+extern int get_perf_data(struct nvdla_device *ndev, void *buf);
 
 static int setup_model_task(struct user_model *model)
 {
@@ -696,23 +696,30 @@ static int send_perf_data_to_usr(struct nvdla_device *nvdla_dev,
 				 struct win_ioctl_args *win_arg)
 {
 	struct win_engine *engine;
+	void *buf = NULL;
 	int ret;
 
 	engine = (struct win_engine *)nvdla_dev->win_engine;
 
-	ret = get_perf_data(nvdla_dev);
+	buf = vmalloc(sizeof(npu_e31_perf_t) * MAX_OP_NUM);
+	if (NULL == buf) {
+		dla_error("malloc npu perf buf error.\n");
+		return -ENOMEM;
+	}
+
+	ret = get_perf_data(nvdla_dev, buf);
 	if (ret)
 		goto fail;
 
-	if (copy_to_user((void __user *)(win_arg->data), engine->perf_data_buf,
-			 sizeof(npu_e31_perf_t) * MAX_OP_NUM)) {
+	if (copy_to_user((void __user *)(win_arg->data), buf,
+	                sizeof(npu_e31_perf_t) * MAX_OP_NUM)) {
 		dla_error("err:bad user data address.\n");
 		ret = -EFAULT;
 		goto fail;
 	}
 
 fail:
-
+	vfree(buf);
 	return ret;
 }
 
@@ -959,7 +966,6 @@ static void npu_uctx_release(struct khandle *h)
 		  uctx);
 	kfree(uctx);
 	module_put(THIS_MODULE);
-	npu_pm_put(ndev);
 }
 
 int npu_dev_open(struct inode *inode, struct file *file)
@@ -987,16 +993,9 @@ int npu_dev_open(struct inode *inode, struct file *file)
 
 	ndev = npu_cdev->nvdla_dev;
 	engine = ndev->win_engine;
-	ret = npu_pm_get(ndev);
-	if (ret < 0) {
-		dla_error("%s, %d, npu_pm_get failed, ret = %d.\n", __func__,
-			  __LINE__, ret);
-		return ret;
-	}
 	spin_lock_irqsave(&engine->executor_lock, flags);
 	if (engine->engine_is_alive == false) {
 		dla_error("npu engine is not ok, please restart.\n");
-		npu_pm_put(ndev);
 		spin_unlock_irqrestore(&engine->executor_lock, flags);
 		return -ENODEV;
 	}
@@ -1004,14 +1003,12 @@ int npu_dev_open(struct inode *inode, struct file *file)
 
 	if (!try_module_get(THIS_MODULE)) {
 		dla_error("%s, %d, cannot get module.\n", __func__, __LINE__);
-		npu_pm_put(ndev);
 		return -ENODEV;
 	}
 
 	uctx = kzalloc(sizeof(struct user_context), GFP_KERNEL);
 	if (uctx == NULL) {
 		module_put(THIS_MODULE);
-		npu_pm_put(ndev);
 		dla_error("%s %d nomem\n", __func__, __LINE__);
 		return -ENOMEM;
 	}
@@ -1021,7 +1018,6 @@ int npu_dev_open(struct inode *inode, struct file *file)
 	if (ret != 0) {
 		dla_error("init kernel handle for user context error.\n");
 		module_put(THIS_MODULE);
-		npu_pm_put(ndev);
 		kfree(uctx);
 		return ret;
 	}

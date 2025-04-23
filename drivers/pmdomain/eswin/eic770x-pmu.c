@@ -29,11 +29,14 @@
 #include <linux/platform_device.h>
 #include <linux/eswin-win2030-sid-cfg.h>
 #include <linux/pm_domain.h>
+#include <linux/regulator/consumer.h>
 #include <dt-bindings/power/eswin,eic770x-pmu.h>
+#include <dt-bindings/interconnect/eswin,win2030.h>
+#include <linux/win2030_noc.h>
 
 #define PD_CTRL                 0x0  // override
 #define PD_SW_COLLAPSE          0x4  // sw collapse en
-#define PD_SW_PWR               0x8  // power switch ack & power switch en 
+#define PD_SW_PWR               0x8  // power switch ack & power switch en
 #define PD_SW_RESET             0xC  // reg reset
 #define PD_SW_ISO               0x10 // sw clamp io
 #define PD_SW_CLK_DISABLE       0x14 // sw clk disable
@@ -85,6 +88,8 @@ struct eic770x_domain_info
 	struct pmu_device_clock_delay clk_dly;
 	struct pmu_device_reset_delay reset_dly;
 	struct pmu_device_clamp_delay clamp_dly;
+	struct regulator *regulator;
+	struct notifier_block nb;
 };
 
 struct eic770x_pmu {
@@ -102,11 +107,46 @@ struct eic770x_pmu_dev {
 	struct generic_pm_domain genpd;
 };
 
+static int eic770x_npu_regulator_event(struct notifier_block *nb,
+				unsigned long event, void *data)
+{
+	struct eic770x_domain_info *pd_info =
+					container_of(nb, struct eic770x_domain_info, nb);
+
+	if (event & REGULATOR_EVENT_PRE_DISABLE) {
+		printk(KERN_INFO "[PMU] %s power-off.\n", pd_info->name);
+		iowrite32(0x1, pd_info->reg_base + PD_SW_RESET);
+		iowrite32(0x1, pd_info->reg_base + PD_SW_CLK_DISABLE);
+		iowrite32(0x0, pd_info->reg_base + PD_SW_ISO);
+	}
+	if (event & REGULATOR_EVENT_ENABLE)	{
+		msleep(100);
+
+		iowrite32(0x1, pd_info->reg_base + PD_SW_ISO);
+		iowrite32(0x0, pd_info->reg_base + PD_SW_CLK_DISABLE);
+		iowrite32(0x0, pd_info->reg_base + PD_SW_RESET);
+		printk(KERN_INFO "[PMU] %s power-on.\n", pd_info->name);
+	}
+	return 0;
+}
+
+/* ISO operation will cause system report "CMD_SYNC timeout",
+   if this function was called late than first regulator_enable.*/
+static int eic770x_npu_register_regulator_notify(struct eic770x_domain_info *pd_info)
+{
+	if((pd_info != NULL) && ((pd_info->regulator != NULL))) {
+		pd_info->nb.notifier_call = eic770x_npu_regulator_event;
+		return devm_regulator_register_notifier(pd_info->regulator,
+							&pd_info->nb);
+	}
+	return -EINVAL;
+}
+
 static int eic770x_pmu_get_domain_state(struct eic770x_pmu_dev *pmd, bool *is_on)
 {
 	*is_on = false;
 
-	if(PD_STATUS_MASK & ioread32(pmd->domain_info->reg_base + PD_DEBUG)) { 
+	if(PD_STATUS_MASK & ioread32(pmd->domain_info->reg_base + PD_DEBUG)) {
 		*is_on = true;
 	}
 
@@ -150,7 +190,7 @@ static int eic770x_pmu_domain_on(struct generic_pm_domain *genpd)
 	}
 
 	if (!of_property_read_u32(node, "tbus", &val)) {
-		win2030_tbu_power_by_dev_and_node(pmu->dev, node, true); // tbu power on
+		win2030_tbu_force_power_by_dev_and_node(pmu->dev, node, true); // tbu power on
 		dev_info(pmu->dev, "%s power on tbu.\n", pmd->genpd.name);
 	}
 
@@ -178,7 +218,7 @@ static int eic770x_pmu_domain_off(struct generic_pm_domain *genpd)
 	dev_info(pmu->dev, "The %s enters power off process.\n", pmd->genpd.name);
 
 	if (!of_property_read_u32(node, "tbus", &val)) {
-		win2030_tbu_power_by_dev_and_node(pmu->dev, node, false); // tbu power off
+		win2030_tbu_force_power_by_dev_and_node(pmu->dev, node, false); // tbu power off
 		dev_info(pmu->dev, "%s power off tbu.\n", pmd->genpd.name);
 	}
 
@@ -235,7 +275,6 @@ static int eic770x_pmu_init_domain(struct eic770x_pmu *pmu, int index)
 	return 0;
 }
 
-
 static int eic770x_pmu_add_domain(struct device *dev, struct eic770x_pmu *pmu)
 {
 	struct eic770x_domain_info *pd_info;
@@ -262,7 +301,7 @@ static int eic770x_pmu_add_domain(struct device *dev, struct eic770x_pmu *pmu)
 			dev_err(dev, "Failed to parse pmu id.\n");
 			continue;
 		}
-		if(id > EIC770X_PD_DSP3) {
+		if(id > EIC770X_PD_NPU) {
 			dev_err(dev, "pmu id %d out of range.\n", id);
 			continue;
 		}
@@ -275,6 +314,24 @@ static int eic770x_pmu_add_domain(struct device *dev, struct eic770x_pmu *pmu)
 
 		of_property_read_string(node, "label", &pd_info->name);
 		of_property_read_u32(node, "power_status", &pd_info->status);
+
+		if(id == EIC770X_PD_NPU) {
+			pd_info->regulator = devm_regulator_get(dev, "npu");
+			if (IS_ERR(pd_info->regulator)) {
+				dev_err(dev, "%pOF: failed to get power regulator.\n",
+						node);
+				pd_info->regulator = NULL;
+				continue;
+			}
+
+			ret = eic770x_npu_register_regulator_notify(pd_info);
+			if(ret) {
+				dev_err(dev, "Failed to register npu regulator notifier: %d\n",
+						ret);
+			}
+			/* Skip Increment num_domains.*/
+			continue;
+		}
 
 		nval = of_property_read_u32_array(node, "power_delay", &val[0], 4);
 		if(!nval ){
