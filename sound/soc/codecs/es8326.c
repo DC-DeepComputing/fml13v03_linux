@@ -47,7 +47,7 @@ struct es8326_priv {
 	int jack_remove_retry;
 #ifdef ESWIN_CONFIG_CODEC_ES8326
 	int spk_ctl_gpio;
-	bool prev_enable;
+	bool spk_mute;
 #endif
 };
 
@@ -324,18 +324,12 @@ static const struct snd_soc_dapm_route es8326_dapm_routes[] = {
 #ifdef ESWIN_CONFIG_CODEC_ES8326
 static void es8326_enable_spk(struct es8326_priv *es8326, bool enable)
 {
-	dev_dbg(es8326->component->dev,
-		"%s: enable=%d, prev_enable=%d, gpio=%d\n", __func__, enable,
-		es8326->prev_enable, es8326->spk_ctl_gpio);
+	dev_dbg(es8326->component->dev, "%s: enable=%d, gpio=%d\n", __func__,
+		enable, es8326->spk_ctl_gpio);
 
-	if (enable != es8326->prev_enable) {
-		if (es8326->spk_ctl_gpio >= 0) {
-			gpio_set_value(es8326->spk_ctl_gpio, enable);
-			dev_dbg(es8326->component->dev, "GPIO set to %d\n", enable);
-		}
-		es8326->prev_enable = enable;
-	} else {
-		dev_dbg(es8326->component->dev, "No GPIO change needed\n");
+	if (es8326->spk_ctl_gpio >= 0) {
+		gpio_set_value(es8326->spk_ctl_gpio, enable);
+		dev_dbg(es8326->component->dev, "GPIO set to %d\n", enable);
 	}
 }
 #endif
@@ -647,6 +641,9 @@ static int es8326_mute(struct snd_soc_dai *dai, int mute, int direction)
 	struct es8326_priv *es8326 = snd_soc_component_get_drvdata(component);
 	unsigned int offset_l, offset_r;
 
+	dev_dbg(component->dev, "%s: mute=%d, direction=%d, hp=%d\n", __func__,
+		mute, direction, es8326->hp);
+
 	if (mute) {
 		if (direction == SNDRV_PCM_STREAM_PLAYBACK) {
 			regmap_write(es8326->regmap, ES8326_HP_CAL, ES8326_HP_OFF);
@@ -700,7 +697,10 @@ static int es8326_mute(struct snd_soc_dai *dai, int mute, int direction)
 
 #ifdef ESWIN_CONFIG_CODEC_ES8326
     /* Speaker control: enable only when unmuting and no headphones */
-    es8326_enable_spk(es8326, !mute && !es8326->hp);
+	if (direction == SNDRV_PCM_STREAM_PLAYBACK) {
+		es8326_enable_spk(es8326, !mute && !es8326->hp);
+		es8326->spk_mute = mute;
+	}
 #endif
 
 	return 0;
@@ -1003,8 +1003,9 @@ static void es8326_jack_detect_handler(struct work_struct *work)
 
 #ifdef ESWIN_CONFIG_CODEC_ES8326
 	/* Speaker control: enable when no headset, disable when headset is present */
-	dev_dbg(comp->dev, "Updating speaker state, hp=%d\n", es8326->hp);
-	es8326_enable_spk(es8326, !es8326->hp);
+	dev_dbg(comp->dev, "Updating speaker state, hp=%d, spk_mute=%d\n",
+		es8326->hp, es8326->spk_mute);
+	es8326_enable_spk(es8326, !es8326->hp && !es8326->spk_mute);
 #endif
 
 exit:
@@ -1383,7 +1384,7 @@ static int es8326_i2c_probe(struct i2c_client *i2c)
 	}
 
 #ifdef ESWIN_CONFIG_CODEC_ES8326
-	es8326->prev_enable = false;
+	es8326->spk_mute = true;
 	es8326->spk_ctl_gpio = of_get_named_gpio(i2c->dev.of_node, "spk-ctl-gpio", 0);
 	if (es8326->spk_ctl_gpio < 0) {
 		dev_info(&i2c->dev, "Can not read property spk_ctl_gpio\n");
