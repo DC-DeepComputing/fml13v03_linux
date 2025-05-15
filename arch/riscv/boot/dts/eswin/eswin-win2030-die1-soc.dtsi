@@ -1042,8 +1042,9 @@
 			dma-noncoherent;
 			numa-node-id = <1>;
 
+			operating-points-v2 = <&gpu_opp_table>;
 			#cooling-cells = <2>;
-			dynamic-power-coefficient = <0>; /*TBD*/
+			dynamic-power-coefficient = <4000>; /*TBD*/
 		};
 
 		d1_sata: sata@0x70420000 {
