@@ -1138,7 +1138,7 @@ static int cros_sbs_probe(struct platform_device *pdev)
 	if (rc)
 		return rc;
 
-	chip->power_supply = devm_power_supply_register(chip->dev, cros_sbs_desc,
+	chip->power_supply = devm_power_supply_register_no_ws(chip->dev, cros_sbs_desc,
 						   &psy_cfg);
 	if (IS_ERR(chip->power_supply))
 		return dev_err_probe(dev, PTR_ERR(chip->power_supply),
