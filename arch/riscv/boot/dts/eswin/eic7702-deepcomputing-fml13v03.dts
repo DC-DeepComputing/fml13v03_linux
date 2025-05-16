@@ -488,7 +488,11 @@
 
 &d0_lpcpu {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die0_gpio0_default>;
+	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>;
 };
+
 &d1_lpcpu {
 	status = "disabled";
 };
@@ -1011,7 +1015,7 @@
 };
 
 &d1_uart0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &d0_uart1 {

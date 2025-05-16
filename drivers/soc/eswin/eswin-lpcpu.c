@@ -41,6 +41,8 @@
 // #include <linux/mailbox/eswin-ipc-scpu.h>
 #include <linux/eswin-win2030-sid-cfg.h>
 #include <soc/eswin/eswin-lpcpu.h>
+#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 
 #define LPCPU_FW_RESERVED
 #define FW_BOOT_ADDR 0x80000000
@@ -73,6 +75,7 @@ struct lpcpu_dev {
 	struct reset_control *dbg_rst;
 	void __iomem *mmio;
 	size_t fw_size;
+	struct gpio_desc *irq_gpio;
 };
 
 static struct lpcpu_dev *lpcpu;
@@ -315,6 +318,13 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 	if (!lpcpu)
 		return -ENOMEM;
 	platform_set_drvdata(pdev, lpcpu);
+
+	lpcpu->irq_gpio = devm_gpiod_get(dev, "irq", GPIOD_IN);
+	if (IS_ERR(lpcpu->irq_gpio)) {
+		dev_err(dev, "Failed to get IRQ GPIO\n");
+		return PTR_ERR(lpcpu->irq_gpio);
+	}
+	enable_irq_wake(gpiod_to_irq(lpcpu->irq_gpio));
 
 	lpcpu->mdev.minor = MISC_DYNAMIC_MINOR;
 	lpcpu->mdev.name = "lpcpu";
