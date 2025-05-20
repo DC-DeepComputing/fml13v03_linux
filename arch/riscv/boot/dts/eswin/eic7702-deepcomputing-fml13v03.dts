@@ -215,6 +215,35 @@
 		regulator-always-on;
 		status = "okay";
 	};
+
+	wifi_power: regulator-gpio27 {
+		compatible = "regulator-fixed";
+		regulator-name = "wifi-power";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&porta 27 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_die0_gpio27_default>;
+		regulator-always-on;
+		status = "okay";
+	};
+
+	rfkill_wifi {
+		compatible = "rfkill-gpio";
+		label = "Wi-Fi";
+		radio-type = "wlan";
+		reset-gpios = <&d1_porta 16 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
+
+	rfkill_bt {
+		compatible = "rfkill-gpio";
+		label = "Bluetooth";
+		radio-type = "bluetooth";
+		reset-gpios = <&d1_porta 18 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
 };
 
 &D1CACHE {
@@ -545,15 +574,14 @@
 &pcie {
 	/* m.2 ssd key m */
 	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die0_gpio27_default
-				 &pinctrl_die1_gpio16_default
-				 &pinctrl_die1_gpio18_default>;
 };
 
 &d1_pcie {
 	/* wifi key e */
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die1_gpio16_default
+				 &pinctrl_die1_gpio18_default>;
 };
 
 &d0_npu{
@@ -1688,7 +1716,7 @@
 	gpio18  : ina226 alert(I)
 	gpio20  : lcd touch int(I)
 	gpio21  : head phone plug/unplug detection2(I)
-	gpio27  : black light pwr_en(O)
+	gpio27  : wifi power enable(O)
 	gpio28  : head phone plug/unplug detection1(I)
 	gpio68  : fan pwm(O)
 	gpio69  : fan touch(I)
@@ -1703,8 +1731,8 @@
 	gpio13  : gphy0 resetn(O)
 	gpio14  : gphy1 resetn(O)
 	gpio15  : bt wake host(I)
-	gpio16  : sdio wifi disable(O)
-	gpio18  : sdio wifi wake host(I)
+	gpio16  : wifi enable(O)
+	gpio18  : bluetooth enable(O)
 	gpio19  : pcie prstn(I)
 	gpio20  : head phone plug/unplug detection2(I)
 	gpio21  : mipi dsi resetn(O)
