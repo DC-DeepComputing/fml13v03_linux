@@ -1552,7 +1552,7 @@
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&pinctrl_die0_pwm0_default>;
 	pinctrl-1 = <&pinctrl_die0_gpio68_default>;
-	fan-gpios = <&portc 4 GPIO_ACTIVE_HIGH>;
+	enable-gpios = <&portc 4 GPIO_ACTIVE_HIGH>;
 };
 
 &d1_pwm0 {
@@ -1560,9 +1560,9 @@
 	clock-names = "pclk";
 	clocks = <&d1_clock EIC7700_CLK_LSP_TIMER_PCLK>;
 	pinctrl-names = "default";
-	pinctrl-0 = <&d1_pinctrl_pwm0_default>;
+	pinctrl-0 = <&pinctrl_die1_pwm0_default>;
 	pinctrl-1 = <&pinctrl_die1_gpio68_default>;
-	fan-gpios = <&d1_portc 4 GPIO_ACTIVE_HIGH>;
+	enable-gpios = <&d1_portc 4 GPIO_ACTIVE_HIGH>;
 };
 
 &fan_control {

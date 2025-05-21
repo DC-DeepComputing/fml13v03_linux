@@ -65,7 +65,7 @@ struct dwc_pwm {
 	struct clk *clk;
 	struct reset_control *rst;
 	struct dwc_pwm_ctx ctx[DWC_TIMERS_TOTAL];
-	struct gpio_desc *gpio_fan;
+	struct gpio_desc *gpio_enable;
 };
 #define to_dwc_pwm(p)	(container_of((p), struct dwc_pwm, chip))
 
@@ -271,10 +271,10 @@ static int dwc_pwm_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	dwc->gpio_fan = devm_gpiod_get(&pdev->dev, "fan", GPIOD_OUT_LOW);
-	if (IS_ERR(dwc->gpio_fan)) {
-		dev_err(&pdev->dev, "failed to get fan gpio, err: %ld\n", PTR_ERR(dwc->gpio_fan));
-		return PTR_ERR(dwc->gpio_fan);
+	dwc->gpio_enable = devm_gpiod_get(&pdev->dev, "enable", GPIOD_OUT_LOW);
+	if (IS_ERR(dwc->gpio_enable)) {
+		dev_err(&pdev->dev, "failed to get enable gpio, err: %ld\n", PTR_ERR(dwc->gpio_enable));
+		return PTR_ERR(dwc->gpio_enable);
 	}
 
 	ret = devm_pwmchip_add(dev, &dwc->chip);
@@ -319,7 +319,7 @@ static int dwc_pwm_runtime_suspend(struct device *dev)
 		return ret;
 	}
 
-	gpiod_set_value(dwc->gpio_fan, 0);
+	gpiod_set_value(dwc->gpio_enable, 0);
 
 	return 0;
 }
@@ -329,7 +329,7 @@ static int dwc_pwm_runtime_resume(struct device *dev)
 	struct dwc_pwm *dwc = dev_get_drvdata(dev);
 	int ret;
 
-	gpiod_set_value(dwc->gpio_fan, 1);
+	gpiod_set_value(dwc->gpio_enable, 1);
 	ret = pinctrl_pm_select_default_state(dev);
 	if (ret) {
 		dev_err(dev, "failed to select default state: %d\n", ret);
@@ -376,7 +376,7 @@ static int dwc_pwm_suspend(struct device *dev)
 		return ret;
 	}
 
-	gpiod_set_value(dwc->gpio_fan, 0);
+	gpiod_set_value(dwc->gpio_enable, 0);
 
 	return 0;
 }
@@ -387,7 +387,7 @@ static int dwc_pwm_resume(struct device *dev)
 	int ret, i;
 
 	dev_dbg(dev, "%s\n", __func__);
-	gpiod_set_value(dwc->gpio_fan, 1);
+	gpiod_set_value(dwc->gpio_enable, 1);
 	ret = pinctrl_pm_select_default_state(dev);
 	if (ret) {
 		dev_err(dev, "failed to select default state: %d\n", ret);
