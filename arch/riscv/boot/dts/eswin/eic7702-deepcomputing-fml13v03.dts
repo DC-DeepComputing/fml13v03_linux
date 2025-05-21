@@ -526,6 +526,20 @@
 	status = "disabled";
 };
 
+&pinctrl_die0_gpio25_default {
+	mux {
+		groups = "gpio25_group";
+		function = "gpio25_func";
+	};
+	conf {
+		groups = "gpio25_group";
+		drive-strength = <2>;
+		input-enable = <1>;
+		bias-pull-up = <0>;
+		bias-pull-down = <0>;
+	};
+};
+
 &pinctrl_die0_gpio27_default {
 	mux {
 		groups = "gpio27_group";
@@ -1716,6 +1730,7 @@
 	gpio18  : ina226 alert(I)
 	gpio20  : lcd touch int(I)
 	gpio21  : head phone plug/unplug detection2(I)
+	gpio25  : ec interrupt(I)
 	gpio27  : wifi power enable(O)
 	gpio28  : head phone plug/unplug detection1(I)
 	gpio68  : fan pwm(O)
