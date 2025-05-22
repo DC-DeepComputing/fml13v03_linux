@@ -38,23 +38,23 @@
 			polling-delay-passive = <100>; /*ms*/
 			polling-delay = <1000>; /*ms*/
 			sustainable-power = <30000>; /*mW*/
-			thermal-sensors = <&pvt0>;
+			thermal-sensors = <&pvt1>;
 
 			trips {
 
 				threshold: trip-point0 {
-					temperature = <90000>;
+					temperature = <60000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
 				target: trip-point1 {
-					temperature = <100000>;
+					temperature = <70000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
 
 				crit: trip-point2 {
-					temperature     = <105000>;
+					temperature     = <80000>;
 					hysteresis      = <0>;
 					type            = "critical";
 				};
@@ -1374,6 +1374,7 @@
 			reg = <0x0 0x52360000 0x0 0x20000>;
 			interrupts = <350>;
 			interrupt-parent = <&plic0>;
+			#thermal-sensor-cells = <0>;
 			status = "disabled";
 			label = "pvt1";
 			numa-node-id = <0>;
