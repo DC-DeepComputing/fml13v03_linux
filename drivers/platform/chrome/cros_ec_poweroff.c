@@ -1,3 +1,4 @@
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -13,28 +14,14 @@
 static struct cros_ec_device *ec_dev;
 static void (*orig_pm_power_off)(void);
 
-struct cros_ec_poweroff_async {
-	struct spi_message msg;
-	struct spi_transfer xfer;
-	u8 tx_buf[8];
-	u8 rx_buf[8];
-	int status;
-};
-
-static void cros_ec_poweroff_complete(void *arg)
-{
-	struct cros_ec_poweroff_async *async = arg;
-	async->status = async->msg.status;
-	dev_dbg(ec_dev->dev, "SPI transfer completed with status: %d\n",
-		async->status);
-	kfree(async);
-}
-
-static int cros_ec_send_shutdown_async(struct cros_ec_device *ec)
+static int cros_ec_send_shutdown(struct cros_ec_device *ec)
 {
 	struct spi_device *spi;
-	struct cros_ec_poweroff_async *async;
-	struct cros_ec_command msg = { 0 };
+	struct spi_message msg;
+	struct spi_transfer xfer = { 0 };
+	struct spi_transfer trans_delay = { 0 };
+	u8 tx_buf[8], rx_buf[8];
+	struct cros_ec_command cmd = { 0 };
 	int len, ret;
 
 	if (!ec) {
@@ -52,44 +39,39 @@ static int cros_ec_send_shutdown_async(struct cros_ec_device *ec)
 		return -EINVAL;
 	}
 
-	async = kzalloc(sizeof(*async), GFP_ATOMIC);
-	if (!async) {
-		dev_err(ec->dev, "Failed to allocate async struct\n");
-		return -ENOMEM;
-	}
-
-	msg.version = 0;
-	msg.command = EC_CMD_HOST_SHUTDOWN;
-	msg.outsize = 0;
-	msg.insize = 0;
-
-	len = cros_ec_prepare_tx(ec, &msg);
+	cmd.version = 0;
+	cmd.command = EC_CMD_HOST_SHUTDOWN;
+	cmd.outsize = 0;
+	cmd.insize = 0;
+	len = cros_ec_prepare_tx(ec, &cmd);
 	if (len < 0) {
 		dev_err(ec->dev, "Failed to prepare TX data\n");
-		kfree(async);
 		return len;
 	}
 
-	memcpy(async->tx_buf, ec->dout, len);
+    if (len > sizeof(tx_buf)) {
+        dev_err(ec->dev, "TX data length %d exceeds buffer size %zu\n",
+                len, sizeof(tx_buf));
+        return -EINVAL;
+    }
+	memcpy(tx_buf, ec->dout, len);
+	xfer.tx_buf = tx_buf;
+	xfer.rx_buf = rx_buf;
+	xfer.len = len;
+    spi_message_init(&msg);
+    trans_delay.delay.value = 10;
+    trans_delay.delay.unit = SPI_DELAY_UNIT_USECS;
+    spi_message_add_tail(&trans_delay, &msg);
+	spi_message_add_tail(&xfer, &msg);
 
-	async->xfer.tx_buf = async->tx_buf;
-	async->xfer.rx_buf = async->rx_buf;
-	async->xfer.len = len;
-	spi_message_init(&async->msg);
-	spi_message_add_tail(&async->xfer, &async->msg);
-
-	async->msg.complete = cros_ec_poweroff_complete;
-	async->msg.context = async;
-
-	dev_dbg(ec->dev, "Sending async shutdown command to EC\n");
-	ret = spi_async(spi, &async->msg);
+    dev_dbg(ec->dev, "Sending shutdown command to EC\n");
+    ret = spi_sync(spi, &msg);
 	if (ret < 0) {
-		dev_err(ec->dev, "SPI async failed: %d\n", ret);
-		kfree(async);
+        dev_err(ec->dev, "SPI sync failed: %d\n", ret);
 		return ret;
 	}
 
-	dev_info(ec->dev, "Shutdown command queued to EC via SPI\n");
+    dev_info(ec->dev, "Shutdown command sent to EC via SPI\n");
 	return 0;
 }
 
@@ -103,7 +85,7 @@ static void cros_ec_power_off(void)
 		return;
 	}
 
-	ret = cros_ec_send_shutdown_async(ec_dev);
+    ret = cros_ec_send_shutdown(ec_dev);
 	if (ret < 0) {
 		dev_err(ec_dev->dev,
 			"EC power off failed, falling back to original\n");
