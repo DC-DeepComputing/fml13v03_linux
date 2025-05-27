@@ -648,6 +648,7 @@
 	};
 	usb_pd_sink@8 {
 		label = "usb_pd_sink";
+		reg = <0x8>;
 	};
 };
 
