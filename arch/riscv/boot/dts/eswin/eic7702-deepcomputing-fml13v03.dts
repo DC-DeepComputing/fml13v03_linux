@@ -601,7 +601,6 @@
 &d0_npu{
 	status = "okay";
 	npu-supply=<&d0_npu_vcc>;
-	npu_def_high_vol = <1100000>;
 };
 &d1_npu {
 	status = "okay";
