@@ -12,6 +12,7 @@
 #define DRV_NAME "cros-ec-poweroff"
 
 static struct cros_ec_device *ec_dev;
+static struct gpio_desc *power_status_gpio;
 static void (*orig_pm_power_off)(void);
 
 static int cros_ec_send_shutdown(struct cros_ec_device *ec)
@@ -66,6 +67,10 @@ static int cros_ec_send_shutdown(struct cros_ec_device *ec)
 
     dev_dbg(ec->dev, "Sending shutdown command to EC\n");
     ret = spi_sync(spi, &msg);
+
+	if (power_status_gpio)
+	    gpiod_set_value(power_status_gpio, 0);
+
 	if (ret < 0) {
         dev_err(ec->dev, "SPI sync failed: %d\n", ret);
 		return ret;
@@ -117,6 +122,13 @@ static int cros_ec_poweroff_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
+	power_status_gpio = devm_gpiod_get_optional(&pdev->dev, "power-status", GPIOD_OUT_HIGH);
+	if (IS_ERR(power_status_gpio)) {
+		dev_err(&pdev->dev, "Failed to get power status GPIO: %ld\n",
+			PTR_ERR(power_status_gpio));
+		return PTR_ERR(power_status_gpio);
+	}
+
 	orig_pm_power_off = pm_power_off;
 	pm_power_off = cros_ec_power_off;
 
@@ -130,6 +142,7 @@ static int cros_ec_poweroff_remove(struct platform_device *pdev)
 		pm_power_off = orig_pm_power_off;
 
 	ec_dev = NULL;
+	power_status_gpio = NULL;
 	dev_info(&pdev->dev, "CROS EC poweroff driver unregistered\n");
 	return 0;
 }
