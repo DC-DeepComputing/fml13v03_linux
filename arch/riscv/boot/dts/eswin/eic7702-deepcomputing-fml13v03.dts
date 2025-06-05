@@ -555,6 +555,21 @@
 	};
 };
 
+&pinctrl_die0_gpio62_default {
+	mux {
+		groups = "gpio62_group";
+		function = "gpio62_func";
+	};
+	conf {
+		groups = "gpio62_group";
+		drive-strength = <2>;
+		output-high;
+		input-enable = <0>;
+		bias-pull-up = <0>;
+		bias-pull-down = <0>;
+	};
+};
+
 &pinctrl_die1_gpio16_default {
 	mux {
 		groups = "gpio16_group";
@@ -1185,8 +1200,11 @@
 		interrupt-parent = <&porta>;
 		interrupts = <25 IRQ_TYPE_LEVEL_LOW>;
 
+		power-status-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
+
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_die0_gpio25_default>;
+		pinctrl-0 = <&pinctrl_die0_gpio25_default
+					 &pinctrl_die0_gpio62_default>;
 	};
 };
 
