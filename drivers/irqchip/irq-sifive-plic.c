@@ -164,6 +164,7 @@ static int plic_set_affinity(struct irq_data *d,
 	unsigned int cpu;
 	struct cpumask amask;
 	struct plic_priv *priv = irq_data_get_irq_chip_data(d);
+	struct irq_desc *desc = irq_data_to_desc(d);
 
 	cpumask_and(&amask, &priv->lmask, mask_val);
 
@@ -172,8 +173,17 @@ static int plic_set_affinity(struct irq_data *d,
 	else
 		cpu = cpumask_any_and(&amask, cpu_online_mask);
 
-	if (cpu >= nr_cpu_ids)
+	if (cpu >= nr_cpu_ids) {
+		/*
+		 * If no CPU can be migrated, it is likely that all available
+		 * CPUs have been shut down, and the interrupt needs to be 
+		 * forcibly enabled at the next resume.
+		 */
+		if((!desc->force_resume_depth) && (!irqd_irq_disabled(d)))
+			desc->force_resume_depth = 1;
+
 		return -EINVAL;
+	}
 
 	plic_irq_disable(d);
 
