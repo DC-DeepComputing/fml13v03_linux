@@ -1538,8 +1538,6 @@
 			interrupt-names = "msi", "inta", "intb", "intc", "intd";
 			interrupt-parent = <&plic1>;
 			interrupt-map-mask = <0x0 0x0 0x0 0x7>;
-			msi-parent = <&plic1>;
-			interrupt-affinity = <&cpu_4>, <&cpu_5>, <&cpu_6>, <&cpu_7>;
 			interrupt-map = <0x0 0x0 0x0 0x1 &plic1 179>,
 							<0x0 0x0 0x0 0x2 &plic1 180>,
 							<0x0 0x0 0x0 0x3 &plic1 181>,
