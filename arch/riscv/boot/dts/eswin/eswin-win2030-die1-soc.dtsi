@@ -430,6 +430,8 @@
 			reset-names = "axi", "cfg", "moncfg", "jd_cfg", "jd_axi", "vd_cfg", "vd_axi";
 			eswin,syscfg = <&d1_sys_con 0x0 0x4>;
 			operating-points-v2 = <&vdec_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <1000>; /*TBD*/
 			power-domains = <&d1_pmu EIC770X_PD_CODEC>;
 			vcmd-core = <0 0x6c>;
 			axife-core = <0x200 0x100>;
@@ -479,6 +481,8 @@
 			reset-names = "axi", "cfg", "moncfg", "je_cfg", "je_axi", "ve_cfg", "ve_axi";
 			eswin,syscfg = <&d1_sys_con 0x0 0x4>;
 			operating-points-v2 = <&venc_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <1000>; /*TBD*/
 			power-domains = <&d1_pmu EIC770X_PD_CODEC>;
 			vcmd-core = <0 0x6c>;
 			axife-core = <0x2000 0x7d0>;
@@ -986,14 +990,14 @@
 
 			resets = <&d1_reset NPU_RST_CTRL SW_NPU_E31CORE_RSTN>;
 			reset-names = "e31_core";
-			operating-points-v2 = <&npu_opp_table>;
 
 			numa-node-id = <1>;
 			firmware-name = "eic7700_die1_e31_fw";
 			dma-noncoherent;
 
+			operating-points-v2 = <&npu_opp_table>;
 			#cooling-cells = <2>;
-			dynamic-power-coefficient = <0>; /*TBD*/
+			dynamic-power-coefficient = <16000>; /*TBD*/
 		};
 
 		d1_llc_dev: llc@71c00000 {
@@ -1370,6 +1374,8 @@
 				clocks = <&d1_clock EIC7700_CLK_DSP_ACLK_0>;
 				clock-names = "aclk";
 				operating-points-v2 = <&dsp_opp_table>;
+				#cooling-cells = <2>;
+				dynamic-power-coefficient = <1000>; /*TBD*/
 				dsp_mbox = <&d1_mbox4>;
 				device-irq = <11
 					(ESWIN_MAILBOX_DSP_0_TO_U84_REG_BASE + 0x20000000)
@@ -1400,6 +1406,8 @@
 				clocks = <&d1_clock EIC7700_CLK_DSP_ACLK_1>;
 				clock-names = "aclk";
 				operating-points-v2 = <&dsp_opp_table>;
+				#cooling-cells = <2>;
+				dynamic-power-coefficient = <1000>; /*TBD*/
 				dsp_mbox = <&d1_mbox5>;
 				device-irq = <13
 					(ESWIN_MAILBOX_DSP_1_TO_U84_REG_BASE + 0x20000000)
@@ -1431,6 +1439,8 @@
 				clocks = <&d1_clock EIC7700_CLK_DSP_ACLK_2>;
 				clock-names = "aclk";
 				operating-points-v2 = <&dsp_opp_table>;
+				#cooling-cells = <2>;
+				dynamic-power-coefficient = <1000>; /*TBD*/
 				dsp_mbox = <&d1_mbox6>;
 				device-irq = <15
 					(ESWIN_MAILBOX_DSP_2_TO_U84_REG_BASE + 0x20000000)
@@ -1462,8 +1472,10 @@
 					0x28120000 0 0x7b1e0000 0x20000>;
 				clocks = <&d1_clock EIC7700_CLK_DSP_ACLK_3>;
 				clock-names = "aclk";
-				dsp_mbox = <&d1_mbox7>;
 				operating-points-v2 = <&dsp_opp_table>;
+				#cooling-cells = <2>;
+				dynamic-power-coefficient = <1000>; /*TBD*/
+				dsp_mbox = <&d1_mbox7>;
 				device-irq = <17
 					(ESWIN_MAILBOX_DSP_3_TO_U84_REG_BASE + 0x20000000)
 					ESWIN_MAILBOX_WR_LOCK_BIT_DSP_3
@@ -1972,6 +1984,8 @@
 			recovery = <0>;
 			dma-noncoherent;
 			operating-points-v2 = <&g2d_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <1000>; /*TBD*/
 			numa-node-id = <1>;
 		};
 
