@@ -38,7 +38,7 @@
 			polling-delay-passive = <100>; /*ms*/
 			polling-delay = <1000>; /*ms*/
 			sustainable-power = <30000>; /*mW*/
-			thermal-sensors = <&pvt1>;
+			thermal-sensors = <&pvt0>;
 
 			trips {
 
