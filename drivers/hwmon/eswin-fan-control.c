@@ -33,14 +33,27 @@
 #include <linux/platform_device.h>
 #include <linux/pwm.h>
 #include <linux/wait.h>
+#include <linux/delay.h>
 
-#define FAN_PWM_DUTY           0x0
-#define FAN_PWM_PERIOD         0x1
-#define FAN_PWM_FREE	       0x2
+#define FAN_PWM_DUTY			0x0
+#define FAN_PWM_PERIOD			0x1
+#define FAN_PWM_FREE			0x2
+#define DDR_TRAINING_TEMP		0x3
+
+#define FAN_RPM_MAX_VALUE			(100000)
+#define FAN_RPM_MAX_READ_CNT		(100)
+#define FAN_RPM_RETRY_INTERVAL		(10)
+#define FAN_RPM_SAMPLE_CNT			(10)//sampling times
+#define FAM_RPM_TOLERANCE_RATIO 	(5)
 
 /* register map */
-#define REG_FAN_INT            0x0
-#define REG_FAN_RPM            0x4
+#define REG_FAN_INT				0x0
+#define REG_FAN_RPM				0x4
+/* test register map */
+#define REG_TEST_0				(0x0)
+#define REG_TEST_1				(0x4)
+#define REG_TEST_2				(0x8)
+#define REG_TEST_3				(0xC)
 
 /* wait for 50 times pwm period to trigger read interrupt */
 #define TIMEOUT(period)        nsecs_to_jiffies(50*(period))
@@ -49,6 +62,7 @@ struct eswin_fan_control_data {
 	struct reset_control *fan_rst;
 	struct clk *clk;
 	void __iomem *base;
+	void __iomem *test_reg_base;
 	struct device *hdev;
 	unsigned long clk_rate;
 	int pwm_id;
@@ -62,7 +76,11 @@ struct eswin_fan_control_data {
 	u32 ppr;
 	/* revolutions per minute */
 	u32 rpm;
+	/* last revolutions per minute */
+	u32 last_rpm;
 	u8 pwm_inverted;
+	/* for getting rpm and setting pwm */
+	struct mutex fan_lock;
 };
 
 static inline void fan_iowrite(const u32 val, const u32 reg,
@@ -139,7 +157,9 @@ static ssize_t eswin_fan_pwm_ctl_store(struct device *dev, struct device_attribu
 		dev_err(dev, "get error attr index 0x%x\n", attr->index);
 	}
 
+	mutex_lock(&ctl->fan_lock);
 	pwm_apply_state(ctl->pwm, &state);
+	mutex_unlock(&ctl->fan_lock);
 
 	return count;
 }
@@ -155,11 +175,29 @@ static ssize_t eswin_fan_pwm_free_store(struct device *dev, struct device_attrib
 		return ret;
 
 	if (val) {
+		mutex_lock(&ctl->fan_lock);
 		pwm_put(ctl->pwm);
+		mutex_unlock(&ctl->fan_lock);
 	}
 
 	return count;
 }
+
+static ssize_t eswin_ddr_training_temp_show(struct device *dev, struct device_attribute *da, char *buf)
+{
+	struct eswin_fan_control_data *ctl = dev_get_drvdata(dev);
+	struct sensor_device_attribute *attr = to_sensor_dev_attr(da);
+	int temp = 0;
+
+	if (DDR_TRAINING_TEMP == attr->index) {
+		temp = ioread32(ctl->test_reg_base + REG_TEST_3);
+	} else {
+		dev_err(dev, "get error attr index 0x%x\n", attr->index);
+	}
+
+	return sprintf(buf, "%d\n", temp);
+}
+
 
 static long eswin_fan_control_get_pwm_duty(const struct eswin_fan_control_data *ctl)
 {
@@ -170,6 +208,34 @@ static long eswin_fan_control_get_pwm_duty(const struct eswin_fan_control_data *
 	duty = pwm_get_relative_duty_cycle(&state, 100);
 
 	return duty;
+}
+
+static long es_fan_rpm_filter_and_average(
+	struct device *dev, u32 samples[], u32 count) {
+	u32 idx = 0;
+	u32 min = 0;
+	u32 sum = 0;
+	u32 cnt = 0;
+
+	if ((samples == NULL) || (count <= 0) || (count > FAN_RPM_SAMPLE_CNT)) {
+		dev_err(dev, "param error with count=%d\n", count);
+		return 0;
+	}
+
+	min = samples[0];
+	for (idx = 1; idx < count; idx++) {
+		if (samples[idx] < min) {
+			min = samples[idx];
+		}
+	}
+	for (idx = 0; idx < count; idx++) {
+		if ((samples[idx] - min) <= (min * FAM_RPM_TOLERANCE_RATIO / 100)) {
+			sum += samples[idx];
+			cnt++;
+		}
+	}
+
+	return cnt ? (sum / cnt) : 0;
 }
 
 static long eswin_fan_control_get_fan_rpm(struct eswin_fan_control_data *ctl)
@@ -203,15 +269,53 @@ static long eswin_fan_control_get_fan_rpm(struct eswin_fan_control_data *ctl)
 
 static int eswin_fan_control_read_fan(struct device *dev, u32 attr, long *val)
 {
+	long ret = 0;
+	int retry = 0;
+	u32 samples[FAN_RPM_SAMPLE_CNT] = {0};
 	struct eswin_fan_control_data *ctl = dev_get_drvdata(dev);
 
 	switch (attr) {
 	case hwmon_fan_input:
-		if(!eswin_fan_control_get_fan_rpm(ctl)){
-			dev_err(dev, "wait read interrupt timeout!\n");
+		mutex_lock(&ctl->fan_lock);
+		for (int32_t idx = 0; idx < FAN_RPM_SAMPLE_CNT; idx++) {
+			retry = 0;
+			while (retry < FAN_RPM_MAX_READ_CNT) {
+				ret = eswin_fan_control_get_fan_rpm(ctl);
+				if (ret == 0) {
+					/* timeout case */
+					*val = 0;
+					mutex_unlock(&ctl->fan_lock);
+					return 0;
+				} else if (ret < 0) {
+					if (ret == -ERESTARTSYS) {
+						/* cancel case */
+						mutex_unlock(&ctl->fan_lock);
+						return -EINTR;
+					}
+					dev_err(dev, "wait read interrupt fail, ret=%ld\n", ret);
+					retry++;
+					continue;
+				}
+				if (ctl->rpm > FAN_RPM_MAX_VALUE) {
+					msleep(FAN_RPM_RETRY_INTERVAL);
+					retry++;
+					continue;
+				} else {
+					break;
+				}
+			}
+			if (retry == FAN_RPM_MAX_READ_CNT) {
+				samples[idx] = ctl->last_rpm;
+			} else {
+				samples[idx] = ctl->rpm;
+			}
+			msleep(FAN_RPM_RETRY_INTERVAL);
 		}
-		*val = ctl->rpm;
+		*val = es_fan_rpm_filter_and_average(dev, samples, FAN_RPM_SAMPLE_CNT);
+		ctl->last_rpm = *val;
+		mutex_unlock(&ctl->fan_lock);
 		return 0;
+
 	default:
 		return -ENOTSUPP;
 	}
@@ -238,9 +342,11 @@ static int eswin_fan_control_set_pwm_duty(const long val, struct eswin_fan_contr
 {
 	struct pwm_state state;
 
+	mutex_lock(&ctl->fan_lock);
 	pwm_get_state(ctl->pwm, &state);
 	pwm_set_relative_duty_cycle(&state, val, 100);
 	pwm_apply_state(ctl->pwm, &state);
+	mutex_unlock(&ctl->fan_lock);
 
 	return 0;
 }
@@ -356,9 +462,12 @@ static irqreturn_t eswin_fan_control_irq_handler(int irq, void *data)
 		/* clear interrupt */
 		fan_iowrite(0x5, REG_FAN_INT, ctl);
 
-		/* wake up fan_rpm read */
-		ctl->wait_flag = true;
-		wake_up_interruptible(&ctl->wq);
+		/* When the fan does not support obtaining speed, bit3 will be set to 1 */
+		if (0x0 == (status & (0x1 << 3))) {
+			/* wake up fan_rpm read */
+			ctl->wait_flag = true;
+			wake_up_interruptible(&ctl->wq);
+		}
 	}
 
 	return IRQ_HANDLED;
@@ -413,14 +522,17 @@ static const struct hwmon_chip_info eswin_chip_info = {
 	.info = eswin_fan_control_info,
 };
 
-static SENSOR_DEVICE_ATTR_RW(fan_pwm_duty,   eswin_fan_pwm_ctl,    FAN_PWM_DUTY);
-static SENSOR_DEVICE_ATTR_RW(fan_pwm_period, eswin_fan_pwm_ctl,    FAN_PWM_PERIOD);
-static SENSOR_DEVICE_ATTR_WO(fan_pwm_free,   eswin_fan_pwm_free,   FAN_PWM_FREE);
+static SENSOR_DEVICE_ATTR_RW(fan_pwm_duty, eswin_fan_pwm_ctl, FAN_PWM_DUTY);
+static SENSOR_DEVICE_ATTR_RW(fan_pwm_period, eswin_fan_pwm_ctl, FAN_PWM_PERIOD);
+static SENSOR_DEVICE_ATTR_WO(fan_pwm_free, eswin_fan_pwm_free, FAN_PWM_FREE);
+static SENSOR_DEVICE_ATTR_RO(ddr_training_temp, eswin_ddr_training_temp, DDR_TRAINING_TEMP);
+
 
 static struct attribute *eswin_fan_control_attrs[] = {
 	&sensor_dev_attr_fan_pwm_duty.dev_attr.attr,
 	&sensor_dev_attr_fan_pwm_period.dev_attr.attr,
 	&sensor_dev_attr_fan_pwm_free.dev_attr.attr,
+	&sensor_dev_attr_ddr_training_temp.dev_attr.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(eswin_fan_control);
@@ -438,6 +550,7 @@ static int eswin_fan_control_probe(struct platform_device *pdev)
 	const char *name = "eswin_fan_control";
 	struct pwm_state state;
 	struct pwm_args pwm_args;
+	struct resource *res;
 	int ret;
 
 	id = of_match_node(eswin_fan_control_of_match, pdev->dev.of_node);
@@ -449,9 +562,16 @@ static int eswin_fan_control_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	ctl->base = devm_platform_ioremap_resource(pdev, 0);
-
 	if (IS_ERR(ctl->base))
 		return PTR_ERR(ctl->base);
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	if (!res)
+		return -ENODEV;
+	ctl->test_reg_base = ioremap(res->start, res->end - res->start + 1);
+	if (IS_ERR_OR_NULL(ctl->test_reg_base)) {
+		return PTR_ERR(ctl->test_reg_base);
+	}
 
 	ctl->clk = devm_clk_get(&pdev->dev, "pclk");
 	if (IS_ERR(ctl->clk)) {
@@ -542,7 +662,9 @@ static int eswin_fan_control_probe(struct platform_device *pdev)
 							 &eswin_chip_info,
 							 eswin_fan_control_groups);
 	dev_set_drvdata(&pdev->dev, ctl);
+	mutex_init(&ctl->fan_lock);
 	dev_err(&pdev->dev, "eswin fan control init exit\n");
+
 	return PTR_ERR_OR_ZERO(ctl->hdev);
 }
 

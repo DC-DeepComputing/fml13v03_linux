@@ -84,6 +84,7 @@ struct dwc_qos_priv {
 	struct regmap *rgmii_sel;
 	struct gpio_desc *phy_reset;
 	struct stmmac_priv *stmpriv;
+	int phyaddr;
 	int phyled_cfgs[3];
 	int phyaddr;
 	unsigned int dly_hsp_reg[3];
@@ -622,7 +623,7 @@ static int dwc_eth_dwmac_probe(struct platform_device *pdev)
 
 	ndev = dev_get_drvdata(&pdev->dev);
 	stmpriv = netdev_priv(ndev);
-	
+
 	dwc_priv->stmpriv = stmpriv;
 
 	return ret;

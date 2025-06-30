@@ -122,6 +122,10 @@ static inline void plic_irq_toggle(const struct cpumask *mask,
 
 static void plic_irq_enable(struct irq_data *d)
 {
+	struct irq_desc *desc = irq_data_to_desc(d);
+	/* Avoid reporting errors when removing irq. */
+	if(desc->force_resume_depth == 0xffff)
+		desc->force_resume_depth = 0;
 	plic_irq_toggle(irq_data_get_effective_affinity_mask(d), d, 1);
 }
 
@@ -180,7 +184,7 @@ static int plic_set_affinity(struct irq_data *d,
 		 * forcibly enabled at the next resume.
 		 */
 		if((!desc->force_resume_depth) && (!irqd_irq_disabled(d)))
-			desc->force_resume_depth = 1;
+			desc->force_resume_depth = 0xffff;
 
 		return -EINVAL;
 	}

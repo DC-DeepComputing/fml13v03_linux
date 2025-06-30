@@ -325,6 +325,23 @@ static int dc_init(struct device *dev)
 	return 0;
 }
 
+static void vo_qos_cfg(void)
+{
+	void __iomem *qos;
+
+#define VO_QOS_CSR 0x50281050UL
+	qos = ioremap(VO_QOS_CSR, 8);
+	if (!qos) {
+		printk("qos ioremap fail---------------\n");
+		return;
+	}
+	writel(0x9, qos);
+	writel(0x9, (char *)qos + 4);
+
+	iounmap(qos);
+	return;
+}
+
 static void es_dc_dump_enable(struct device *dev, dma_addr_t addr,
 			      unsigned int pitch)
 {
@@ -345,6 +362,7 @@ static int es_dc_suspend(struct device *dev, struct drm_device *drm_dev)
 	struct es_dc *dc = dev_get_drvdata(dev);
 	int ret = 0;
 
+	dev_dbg(dev, "%s\n", __func__);
 	disable_irq(dc->irq);
 
 	dc_deinit(dev);
@@ -364,6 +382,7 @@ static int es_dc_resume(struct device *dev, struct drm_device *drm_dev)
 	struct es_drm_private *priv = drm_dev->dev_private;
 #endif
 
+	dev_dbg(dev, "%s\n", __func__);
 	es_dc_clk_configs(dev, true);
 	ret = dc_init(dev);
 	if (ret < 0) {
@@ -383,6 +402,8 @@ static int es_dc_resume(struct device *dev, struct drm_device *drm_dev)
 		dev_err(dev, "Failed to attached iommu device.\n");
 	}
 	enable_irq(dc->irq);
+
+	vo_qos_cfg();
 
 	return 0;
 }
@@ -1078,23 +1099,6 @@ const struct component_ops dc_component_ops = {
 	.bind = dc_bind,
 	.unbind = dc_unbind,
 };
-
-static void vo_qos_cfg(void)
-{
-	void __iomem *qos;
-
-#define VO_QOS_CSR 0x50281050UL
-	qos = ioremap(VO_QOS_CSR, 8);
-	if (!qos) {
-		printk("qos ioremap fail---------------\n");
-		return;
-	}
-	writel(0x9, qos);
-	writel(0x9, (char *)qos + 4);
-
-	iounmap(qos);
-	return;
-}
 
 static const struct of_device_id dc_driver_dt_match[] = {
 	{

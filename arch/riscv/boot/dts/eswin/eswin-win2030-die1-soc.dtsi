@@ -40,12 +40,12 @@
 
 			trips {
 				d1_threshold: trip-point0 {
-					temperature = <50000>;
+					temperature = <70000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
 				d1_target: trip-point1 {
-					temperature = <60000>;
+					temperature = <85000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
@@ -742,7 +742,7 @@
 
 		d1_fan_control: fan_control@70b50000 {
 			compatible = "eswin-fan-control";
-			reg = <0x0 0x70b50000 0x0 0x10000>;
+			reg = <0x0 0x70b50000 0x0 0x10000>, <0x0 0x51810668 0x0 0x4>;
 			clocks = <&d1_clock EIC7700_CLK_LSP_FAN_PCLK>;
 			clock-names = "pclk";
 			resets = <&d1_reset FAN_RST_CTRL SW_FAN_RST_N>;

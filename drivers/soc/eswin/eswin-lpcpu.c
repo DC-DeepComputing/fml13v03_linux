@@ -286,13 +286,16 @@ static const struct file_operations eswin_lpcpu_ops = {
 	.unlocked_ioctl = eswin_lpcpu_ioctl,
 };
 
-static int lpcpu_boot_status(struct mbox_chan *mbox_channel)
+static int lpcpu_boot_status(struct mbox_chan *mbox_channel, u32 vdd_config_msg)
 {
 	int ret = 0;
 	u8 msg[8];
 	msg[0] = 0xca;
 	msg[1] = 0xec;
 	msg[2] = 0x55;
+    // vdd config msg
+    msg[4] = vdd_config_msg & 0xff;
+    msg[7] = (vdd_config_msg >> 24) & 0xff;
 
 	ret = mbox_send_message(mbox_channel, msg);
 	if (ret < 0){
@@ -313,6 +316,8 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 	int numa_id = 0;
 	int ret;
 	long timeout;
+    u32 vdd_config_gpio = 0, vdd_config_die = 0, vdd_config_polarity = 0;
+    u32 buff[3], vdd_config_msg = 0;
 
 	lpcpu = devm_kzalloc(dev, sizeof(*lpcpu), GFP_KERNEL);
 	if (!lpcpu)
@@ -352,6 +357,33 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 		dev_err(dev, "given arguments are not valid: %d\n", ret);
 		goto err_mailbox;
 	}
+
+    /* soc vdd config
+     * vdd_config_msg:  31      can not be used
+     *                  30      vdd config exists 1: exist 0: not exist
+     *                  29:25   reserved
+     *                  24      soc vdd polarity 0: positive 1: negative
+     *                  23:8    reserved
+     *                  7       die number 0-1, ignored on single die chips
+     *                  6:0     gpio number 0-127
+     * of_property:     vddctrl = <GPIO [POLARITY] [DIE]>;
+     *                  GPIO:       gpio port number which vdd control uses, range: 0-127
+     *                  POLARITY:   gpio level polarity, default: 0
+     *                              0: positive, high -> high vdd, low -> low vdd
+     *                              1: negative, high -> low vdd, low -> high vdd
+     *                  DIE:        die number, range 0-1, default: 0 */
+    ret = of_property_read_variable_u32_array(pdev->dev.of_node, "vddctrl", buff, 1, 3);
+    if (ret > 0) {
+        vdd_config_gpio = buff[0] & 0x7f;
+        if (ret > 1)
+            vdd_config_polarity = buff[1] ? 1 : 0;
+        if (ret > 2)
+            vdd_config_die = buff[2] ? 1 : 0;
+        vdd_config_msg = vdd_config_gpio | (vdd_config_die << 7) |
+            (vdd_config_polarity << 24) | (1 << 30);
+        dev_info(dev, "vdd config gpio: die %d, port %d, polarity %s\n", vdd_config_die,
+                vdd_config_gpio, !vdd_config_polarity ? "positive" : "negative");
+    }
 
 	mutex_init(&lpcpu->lock);
 	init_waitqueue_head(&lpcpu->waitq);
@@ -397,7 +429,7 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 		goto err_mmio;
 	}
 
-	ret = lpcpu_boot_status(lpcpu->mbox_channel);
+	ret = lpcpu_boot_status(lpcpu->mbox_channel, vdd_config_msg);
 	if (ret < 0) {
 		dev_err(dev, "Send message to lpcpu via mailbox failed!\n");
 		goto err_mmio;

@@ -65,7 +65,7 @@ struct dwc_pwm {
 	struct clk *clk;
 	struct reset_control *rst;
 	struct dwc_pwm_ctx ctx[DWC_TIMERS_TOTAL];
-	struct gpio_desc *gpio_enable;
+	struct gpio_desc *gpio_fan;
 };
 #define to_dwc_pwm(p)	(container_of((p), struct dwc_pwm, chip))
 
@@ -102,12 +102,6 @@ static int __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 	u32 high=0;
 	u32 low=0;
 
-	if (duty >= state->period)
-		duty = state->period - DWC_CLK_PERIOD_NS;
-
-	if (duty == 0 && state->enabled)
-		duty = state->period / 2;
-
 	/*
 	 * Calculate width of low and high period in terms of input clock
 	 * periods and check are the result within HW limits between 1 and
@@ -116,19 +110,26 @@ static int __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 	tmp = DIV_ROUND_CLOSEST_ULL(duty, DWC_CLK_PERIOD_NS);
 	if (tmp < 1 || tmp > (1ULL << 32))
 		return -ERANGE;
-	if (pwm->args.polarity == PWM_POLARITY_INVERSED)
+	if (pwm->args.polarity== PWM_POLARITY_INVERSED)
+	{
 		high = tmp - 1;
+	}
 	else
+	{
 		low = tmp - 1;
-
-	tmp = DIV_ROUND_CLOSEST_ULL(state->period - duty, DWC_CLK_PERIOD_NS);
+	}
+	tmp = DIV_ROUND_CLOSEST_ULL(state->period - state->duty_cycle,
+				    DWC_CLK_PERIOD_NS);
 	if (tmp < 1 || tmp > (1ULL << 32))
 		return -ERANGE;
 	if (pwm->args.polarity == PWM_POLARITY_INVERSED)
+	{
 		low = tmp - 1;
+	}
 	else
+	{
 		high = tmp - 1;
-
+	}
 	/*
 	 * Specification says timer usage flow is to disable timer, then
 	 * program it followed by enable. It also says Load Count is loaded
@@ -271,11 +272,12 @@ static int dwc_pwm_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	dwc->gpio_enable = devm_gpiod_get(&pdev->dev, "enable", GPIOD_OUT_LOW);
-	if (IS_ERR(dwc->gpio_enable)) {
-		dev_err(&pdev->dev, "failed to get enable gpio, err: %ld\n", PTR_ERR(dwc->gpio_enable));
-		return PTR_ERR(dwc->gpio_enable);
+	dwc->gpio_fan = devm_gpiod_get(&pdev->dev, "fan", GPIOD_OUT_LOW);
+	if (IS_ERR(dwc->gpio_fan)) {
+		dev_err(&pdev->dev, "failed to get fan gpio, err: %ld\n", PTR_ERR(dwc->gpio_fan));
+		return PTR_ERR(dwc->gpio_fan);
 	}
+
 
 	ret = devm_pwmchip_add(dev, &dwc->chip);
 	if (ret)
@@ -319,7 +321,7 @@ static int dwc_pwm_runtime_suspend(struct device *dev)
 		return ret;
 	}
 
-	gpiod_set_value(dwc->gpio_enable, 0);
+	gpiod_set_value(dwc->gpio_fan, 0);
 
 	return 0;
 }
@@ -329,7 +331,7 @@ static int dwc_pwm_runtime_resume(struct device *dev)
 	struct dwc_pwm *dwc = dev_get_drvdata(dev);
 	int ret;
 
-	gpiod_set_value(dwc->gpio_enable, 1);
+	gpiod_set_value(dwc->gpio_fan, 1);
 	ret = pinctrl_pm_select_default_state(dev);
 	if (ret) {
 		dev_err(dev, "failed to select default state: %d\n", ret);
@@ -357,6 +359,13 @@ static int dwc_pwm_suspend(struct device *dev)
 		if (ret)
 			return ret;
 	}
+
+	dev_dbg(dev, "%s\n", __func__);
+	if (pm_runtime_status_suspended(dev)) {
+		ret = dwc_pwm_runtime_resume(dev);
+		if (ret)
+			return ret;
+	}
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
 		if (dwc->chip.pwms[i].state.enabled) {
 			dev_err(dev, "PWM %u in use by consumer (%s)\n",
@@ -376,7 +385,7 @@ static int dwc_pwm_suspend(struct device *dev)
 		return ret;
 	}
 
-	gpiod_set_value(dwc->gpio_enable, 0);
+	gpiod_set_value(dwc->gpio_fan, 0);
 
 	return 0;
 }
@@ -387,7 +396,7 @@ static int dwc_pwm_resume(struct device *dev)
 	int ret, i;
 
 	dev_dbg(dev, "%s\n", __func__);
-	gpiod_set_value(dwc->gpio_enable, 1);
+	gpiod_set_value(dwc->gpio_fan, 1);
 	ret = pinctrl_pm_select_default_state(dev);
 	if (ret) {
 		dev_err(dev, "failed to select default state: %d\n", ret);
@@ -417,7 +426,7 @@ static const struct dev_pm_ops dwc_pwm_pm_ops = {
 	SET_RUNTIME_PM_OPS(dwc_pwm_runtime_suspend, dwc_pwm_runtime_resume, NULL)
 	SET_SYSTEM_SLEEP_PM_OPS(dwc_pwm_suspend, dwc_pwm_resume)
 };
- 
+
 static const struct of_device_id dwc_pwm_id_table[] = {
 	{ .compatible = "eswin,pwm-eswin", },
 	{ /* sentinel */ }

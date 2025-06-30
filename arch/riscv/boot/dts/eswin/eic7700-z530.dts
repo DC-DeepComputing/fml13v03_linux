@@ -36,6 +36,12 @@
 			gpios = <&porta 26 GPIO_ACTIVE_LOW>;
 		};
 	};
+	reg_vcc1v8: vcc1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc1v8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
 };
 
 &d0_gmac0 {
@@ -65,6 +71,9 @@
 	enable-data-pullup;
 	no-sdio;
 	no-mmc;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_gpio13_default>;
+	cd-gpios = <&porta 13 GPIO_ACTIVE_LOW>;
 };
 
 &sdio1 {
@@ -77,6 +86,7 @@
 	non-removable;
 	no-sd;
 	no-mmc;
+	vqmmc-supply = <&reg_vcc1v8>;
 	aw3155:wifi_aw3155@0 {
 		compatible = "aml_w1_sdio";
 		reg = <0x0>;
@@ -88,6 +98,12 @@
 		irq-gpios = <&porta 15 GPIO_ACTIVE_HIGH>;
 		rst-gpios = <&portc 15 GPIO_ACTIVE_HIGH>;
 
+	};
+	mdhd_wlan {
+		compatible = "android,bcmdhd_wlan";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_gpio79_default>;
+		gpio_wl_reg_on = <&portc 15 GPIO_ACTIVE_HIGH>;
 	};
 };
 
@@ -157,11 +173,6 @@
 		irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>;
 		reset-gpios = <&portc 28 GPIO_ACTIVE_HIGH>;
 	};
-};
-
-&d0_aon_i2c0 {
-	/* rk628f x2 */
-
 };
 
 /* GPIO Function Description
