@@ -494,49 +494,15 @@ static int i2s_hw_params(struct snd_pcm_substream *substream,
 	config->sample_rate = params_rate(params);
 
 	if (i2s_drvdata->capability & DW_I2S_MASTER) {
-		if ((config->sample_rate == SAMPLE_RATE_44100) || (config->sample_rate == SAMPLE_RATE_22050)
-			|| (config->sample_rate == SAMPLE_RATE_11025)) {
-			if (!enable_441k[i2s_drvdata->nid]) {
-				if (!i2s_enable_cnt[i2s_drvdata->nid]) {
-					// Get 20-division based on 983.04M
-					ret = clk_set_rate(i2s_drvdata->mclk, MAX_SAMPLE_RATE_CLK * 4);
-					if (ret) {
-						dev_err(i2s_drvdata->dev, "Can't set I2S mclock rate: %d\n", ret);
-						return ret;
-					}
-
-					// Get 11.2896M based on 20-division
-					ret = clk_set_rate(i2s_drvdata->apll_clk, APLL_LOW_FREQ);
-					if (ret) {
-						dev_err(i2s_drvdata->dev, "Can't set I2S apll clock rate: %d\n", ret);
-						return ret;
-					}
-
-					enable_441k[i2s_drvdata->nid] = 1;
-					dev_dbg(i2s_drvdata->dev, "apll rate:%ld\n", clk_get_rate(i2s_drvdata->apll_clk));
-				} else {
-					dev_err(i2s_drvdata->dev, "Other sample rate audio is playing.\n");
-					return -EINVAL;
-				}
-			}
-
-			if ((SAMPLE_RATE_44100 * 4) % config->sample_rate != 0) {
-				dev_err(i2s_drvdata->dev, "Not support sample rate: %d\n", config->sample_rate);
-				return -EINVAL;
-			}
-			div_num = (SAMPLE_RATE_44100 * 4) / config->sample_rate - 1;
-
-			if (i2s_drvdata->active) {
-				if (i2s_drvdata->i2s_div_num != div_num) {
-					dev_err(i2s_drvdata->dev, "Not support the playback and capture clocks are different\n");
-					return -EINVAL;
-				}
-			} else {
-				div_num_reg = i2s_read_reg(i2s_drvdata->i2s_div_base, 0) & ~DIV_NUM_MASK;
-				div_num_reg |= div_num;
-				dev_dbg(i2s_drvdata->dev, "div num:0x%x\n", div_num);
-				i2s_drvdata->i2s_div_num = div_num;
-				i2s_write_reg(i2s_drvdata->i2s_div_base, 0, div_num_reg);
+		if (config->sample_rate == SAMPLE_RATE_44100 ||
+		    config->sample_rate == SAMPLE_RATE_22050 ||
+		    config->sample_rate == SAMPLE_RATE_11025) {
+			// 44.1kHz series
+			mclk_rate = config->sample_rate * 256;
+			ret = clk_set_rate(i2s_drvdata->apll_clk, APLL_LOW_FREQ); // 225.792 MHz
+			if (ret) {
+				dev_err(i2s_drvdata->dev, "Failed to set APLL to 225.792 MHz: %d\n", ret);
+				return ret;
 			}
 			ret = clk_set_rate(i2s_drvdata->mclk, mclk_rate);
 			if (ret) {
@@ -546,48 +512,26 @@ static int i2s_hw_params(struct snd_pcm_substream *substream,
 
 			enable_441k[i2s_drvdata->nid] = 1;
 		} else {
-			if (enable_441k[i2s_drvdata->nid]) {
-				if (!i2s_enable_cnt[i2s_drvdata->nid]) {
-					// Get 12.288M based on 40-division
-					ret = clk_set_rate(i2s_drvdata->apll_clk, APLL_HIGH_FREQ);
-					if (ret) {
-						dev_err(i2s_drvdata->dev, "Can't set I2S apll clock rate: %d\n", ret);
-						return ret;
-					}
+			// 48kHz series
+			if (config->sample_rate == 8000)
+				mclk_rate = config->sample_rate * 1024;
+			else if (config->sample_rate == 16000)
+				mclk_rate = config->sample_rate * 512;
+			else
+				mclk_rate = config->sample_rate * 256;
 
-					// Get 40-division based on 983.04M
-					ret = clk_set_rate(i2s_drvdata->mclk, MAX_SAMPLE_RATE_CLK);
-					if (ret) {
-						dev_err(i2s_drvdata->dev, "Can't set I2S mclock rate: %d\n", ret);
-						return ret;
-					}
-
-					enable_441k[i2s_drvdata->nid] = 0;
-					dev_dbg(i2s_drvdata->dev, "apll rate:%ld\n", clk_get_rate(i2s_drvdata->apll_clk));
-				} else {
-					dev_err(i2s_drvdata->dev, "44.1khz audio is playing.\n");
-					return -EINVAL;
-				}
+			ret = clk_set_rate(i2s_drvdata->apll_clk, APLL_HIGH_FREQ); // 983.04 MHz
+			if (ret) {
+				dev_err(i2s_drvdata->dev, "Failed to set APLL to 983.04 MHz: %d\n", ret);
+				return ret;
+			}
+			ret = clk_set_rate(i2s_drvdata->mclk, mclk_rate);
+			if (ret) {
+				dev_err(i2s_drvdata->dev, "Failed to set MCLK to %ld Hz: %d\n", mclk_rate, ret);
+				return ret;
 			}
 
-			if (MAX_SAMPLE_RATE_SUPPORT % config->sample_rate != 0) {
-				dev_err(i2s_drvdata->dev, "Not support sample rate: %d\n", config->sample_rate);
-				return -EINVAL;
-			}
-			div_num = MAX_SAMPLE_RATE_SUPPORT / config->sample_rate - 1;
-
-			if (i2s_drvdata->active) {
-				if (i2s_drvdata->i2s_div_num != div_num) {
-					dev_err(i2s_drvdata->dev, "Not support the playback and capture clocks are different\n");
-					return -EINVAL;
-				}
-			} else {
-				div_num_reg = i2s_read_reg(i2s_drvdata->i2s_div_base, 0) & ~DIV_NUM_MASK;
-				div_num_reg |= div_num;
-				dev_dbg(i2s_drvdata->dev, "div num:0x%x\n", div_num);
-				i2s_drvdata->i2s_div_num = div_num;
-				i2s_write_reg(i2s_drvdata->i2s_div_base, 0, div_num_reg);
-			}
+			enable_441k[i2s_drvdata->nid] = 0;
 		}
 
 		// Calculate frame size (data width * channels)

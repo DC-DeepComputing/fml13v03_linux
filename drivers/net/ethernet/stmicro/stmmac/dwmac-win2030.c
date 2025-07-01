@@ -86,7 +86,6 @@ struct dwc_qos_priv {
 	struct stmmac_priv *stmpriv;
 	int phyaddr;
 	int phyled_cfgs[3];
-	int phyaddr;
 	unsigned int dly_hsp_reg[3];
 	unsigned int dly_param_1000m[3];
 	unsigned int dly_param_100m[3];
