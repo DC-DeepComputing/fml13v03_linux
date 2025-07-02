@@ -102,6 +102,12 @@ static int __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 	u32 high=0;
 	u32 low=0;
 
+	if (duty >= state->period)
+		duty = state->period - DWC_CLK_PERIOD_NS;
+
+	if (duty == 0 && state->enabled)
+		duty = state->period / 2;
+
 	/*
 	 * Calculate width of low and high period in terms of input clock
 	 * periods and check are the result within HW limits between 1 and

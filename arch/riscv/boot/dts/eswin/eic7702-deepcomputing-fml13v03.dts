@@ -1579,7 +1579,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_die1_pwm0_default>;
 	pinctrl-1 = <&pinctrl_die1_gpio68_default>;
-	enable-gpios = <&d1_portc 4 GPIO_ACTIVE_HIGH>;
+	fan-gpios = <&d1_portc 4 GPIO_ACTIVE_HIGH>;
 };
 
 &fan_control {
