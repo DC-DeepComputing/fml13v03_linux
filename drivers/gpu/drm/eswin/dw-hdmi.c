@@ -3372,7 +3372,10 @@ dw_hdmi_bridge_mode_valid(struct drm_bridge *bridge,
 		return MODE_NO_INTERLACE;
 
 	if (hdmi->numa_id == 0) {
-		if (mode->clock != 235690 && mode->clock != 371370)
+		if (mode->clock != 235690 &&	// 2.2K: 2256x1504
+			mode->clock != 371370 &&	// 2.8K: 2880x1800
+		    mode->clock != 154120 &&	// 1920x1200
+		    mode->clock != 277440)		// 2.5K: 2560x1600
 			return MODE_BAD;
 	}
 
