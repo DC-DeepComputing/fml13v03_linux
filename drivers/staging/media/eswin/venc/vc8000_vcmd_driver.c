@@ -2147,7 +2147,6 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 		return 0;
 	}
 	case HANTRO_IOCH_DMA_HEAP_PUT_IOVA: {
-		struct dmabuf_cfg dbcfg;
 		struct heap_mem *hmem, *hmem_d1;
 		unsigned int dmabuf_fd;
 		struct filp_priv *fp_priv = (struct filp_priv *)filp->private_data;

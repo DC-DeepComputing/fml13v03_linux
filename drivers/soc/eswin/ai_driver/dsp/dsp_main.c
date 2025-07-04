@@ -59,6 +59,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/devfreq.h>
 #include <linux/pm_opp.h>
+#include <linux/eswin-win2030-sid-cfg.h>
 
 #include "eswin-khandle.h"
 

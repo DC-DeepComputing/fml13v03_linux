@@ -549,7 +549,6 @@ static int eswin_get_dev_status(struct device *dev,
 				     struct devfreq_dev_status *stat)
 {
 	struct nvdla_device *nvdla_dev = dev_get_drvdata(dev);
-	unsigned long rate;
 	stat->busy_time = 1024;	
 	stat->total_time = 1024;
 	stat->current_frequency = nvdla_dev->rate;
