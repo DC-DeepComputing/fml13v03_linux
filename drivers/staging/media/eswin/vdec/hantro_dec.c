@@ -2437,7 +2437,6 @@ static long hantrodec_ioctl(struct file *filp, unsigned int cmd,
 		return 0;
 	}
 	case HANTRODEC_IOC_DMA_HEAP_PUT_IOVA: {
-		struct dmabuf_cfg dbcfg;
 		struct heap_mem *hmem, *hmem_d1;
 		unsigned int dmabuf_fd;
 		struct filp_priv *fp_priv = (struct filp_priv *)filp->private_data;
@@ -2634,12 +2633,6 @@ static int hantrodec_release(struct inode *inode,
 	int n;
 	hantrodec_t *dev = &hantrodec_data;
 	struct filp_priv *fp_priv = (struct filp_priv *)filp->private_data;
-#ifdef SUPPORT_DMA_HEAP
-	struct heap_mem *h, *tmp;
-	dma_addr_t iova;
-	size_t buf_size = 0;
-	struct heap_root *root = &fp_priv->root;
-#endif
 
 	LOG_DBG("closing ...\n");
 

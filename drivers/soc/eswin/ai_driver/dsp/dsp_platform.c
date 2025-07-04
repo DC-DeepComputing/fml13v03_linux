@@ -19,6 +19,7 @@
  * Authors: Lu XiangFeng <luxiangfeng@eswincomputing.com>
  */
 
+#include <linux/clk.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/module.h>

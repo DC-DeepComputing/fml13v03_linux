@@ -121,6 +121,7 @@ static irqreturn_t d2d_irqhandle(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+#if 0
 static void adaptation_delay_work_fn(struct work_struct *work)
 {
 	struct d2d_device *d2d_dev = container_of(to_delayed_work(work), struct d2d_device, delay_work);
@@ -135,6 +136,7 @@ static void adaptation_delay_work_fn(struct work_struct *work)
 	}
 	schedule_delayed_work(&d2d_dev->delay_work, msecs_to_jiffies(2 * MSEC_PER_SEC));
 }
+#endif
 
 static const struct of_device_id eic7x_d2d_error_of_match[] = {
 	{.compatible = "eswin,eic7x-d2d", },
