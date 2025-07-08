@@ -487,6 +487,7 @@ static core_cfg config;
 
 #define CORE_TYPE_STR_CASE(ct) case (ct): return(#ct + 3)
 
+#if (OUTPUT_LOG_LEVEL & VC_LOG_LEVEL_DBG)
 static char *CoreTypeStr(enum CoreType ct)
 {
 	switch (ct) {
@@ -505,6 +506,7 @@ static char *CoreTypeStr(enum CoreType ct)
 		return "Invalid core type";
 	}
 }
+#endif
 
 #ifdef HANTRODEC_DEBUG
 
