@@ -2689,8 +2689,6 @@ int hantrovcmd_release(struct inode *inode, struct file *filp)
 
 	if (dev->hw_version_id >= HW_ID_1_2_1) {
 		for (core_id = 0; core_id < total_vcmd_core_num; core_id++) {
-			if (!(&dev[core_id]))
-				continue;
 
 			if (down_interruptible(&vcmd_reserve_cmdbuf_sem[dev[core_id].vcmd_core_cfg.sub_module_type]))
 				return -ERESTARTSYS;
@@ -2966,8 +2964,6 @@ int hantrovcmd_release(struct inode *inode, struct file *filp)
 		}
 	} else {
 		for (core_id = 0; core_id < total_vcmd_core_num; core_id++) {
-			if ((&dev[core_id]) == NULL)
-				continue;
 
 			if (down_interruptible(&vcmd_reserve_cmdbuf_sem[dev[core_id].vcmd_core_cfg.sub_module_type]))
 				return -ERESTARTSYS;
