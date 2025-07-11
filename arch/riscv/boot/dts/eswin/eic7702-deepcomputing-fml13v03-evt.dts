@@ -170,8 +170,7 @@
 
 	backlight: backlight {
 		compatible = "pwm-backlight";
-		pinctrl-0 = <&pinctrl_die0_pwm2_default>;
-		pwms = <&pwm0 2 200000 PWM_POLARITY_INVERTED>;
+		pwms = <&d1_pwm0 0 200000 PWM_POLARITY_INVERTED>;
 		power-supply = <&backlight_regulator>;
 		status = "okay";
 		brightness-levels = <
@@ -209,10 +208,10 @@
 		regulator-name = "camera-light-power";
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
-		gpio = <&portc 28 GPIO_ACTIVE_HIGH>;
+		gpio = <&d1_portc 5 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_die0_gpio92_default>;
+		pinctrl-0 = <&pinctrl_die1_gpio69_default>;
 		regulator-always-on;
 		status = "okay";
 	};
@@ -305,8 +304,8 @@
 &d0_clock {
 	status = "okay";
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die0_gpio94_default>;
-	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
+	pinctrl-0 = <&pinctrl_die0_gpio19_default>;
+	cpu-voltage-gpios = <&porta 19 GPIO_ACTIVE_HIGH>;
 	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
@@ -1182,9 +1181,9 @@
 
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_die0_spi2_default
-				 &pinctrl_die0_gpio6_default>;	// SPI pin multiplexing
+				 &pinctrl_die0_gpio88_default>;	// SPI pin multiplexing
 
-	cs-gpios = <&porta 6 GPIO_ACTIVE_LOW>;
+	cs-gpios = <&portc 24 GPIO_ACTIVE_LOW>;
 	num-cs = <1>;
 
 	fwos_ec: ec@0 {
@@ -1401,10 +1400,10 @@
 		reg = <0x2c>;
 		hid-descr-addr = <0x0020>;
 		post-power-on-delay-ms = <200>;
-		interrupt-parent = <&porta>;
-		interrupts = <20 IRQ_TYPE_LEVEL_LOW>;
+		interrupt-parent = <&d1_porta>;
+		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_die0_gpio20_default>;
+		pinctrl-0 = <&pinctrl_die1_gpio0_default>;
 		status = "okay";
 	};
 
@@ -1565,11 +1564,11 @@
 };
 
 &pwm0 {
-	/* fan, backlight */
+	/* fan */
 	status = "okay";
 	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&pinctrl_die0_pwm0_default &pinctrl_die0_pwm2_default>;
-	pinctrl-1 = <&pinctrl_die0_gpio68_default &pinctrl_die0_gpio41_default>;
+	pinctrl-0 = <&pinctrl_die0_pwm0_default>;
+	pinctrl-1 = <&pinctrl_die0_gpio68_default>;
 	fan-gpios = <&portc 4 GPIO_ACTIVE_HIGH>;
 };
 
