@@ -312,9 +312,7 @@
 
 &d1_clock {
 	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die1_gpio104_default>;
-	cpu-voltage-gpios = <&portd 8 GPIO_ACTIVE_HIGH>;
+	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
 	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
