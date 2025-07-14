@@ -1216,7 +1216,7 @@
 
 &bootspi {
 	/* spi flash */
-	status = "okay";
+	status = "disabled";
 	num-cs = <1>;
 	cs-gpios = <&portd 0 GPIO_ACTIVE_LOW>;
 	wp-gpios = <&portd 4 GPIO_ACTIVE_LOW>;
