@@ -1494,6 +1494,7 @@
 &d0_aon_i2c0 {
 	/* ina226x3 */
 	status = "okay";
+	eswin,syscfg = <&d0_sys_con 0x3C0 16>;
 	i2c-sda-hold-time-ns = <0x40>;
 	ina226@40 {
 		compatible = "ti,ina226";
@@ -1528,6 +1529,7 @@
 &d1_aon_i2c0 {
 	/* ina226x4 */
 	status = "okay";
+	eswin,syscfg = <&d1_sys_con 0x3C0 16>;
 	i2c-sda-hold-time-ns = <0x40>;
 	ina226@40 {
 			compatible = "ti,ina226";
@@ -1739,44 +1741,3 @@
 		status = "okay";
 	};
 };
-
-/* die0 GPIO Function Description
-
-	gpio0   : pcie prstn(I)
-	gpio11  : tmp alert(I)
-	gpio13  : tf card detect(I)
-	gpio14  : gphy1 resetn(O)
-	gpio15  : gphy0 resetn(O)
-	gpio18  : ina226 alert(I)
-	gpio20  : lcd touch int(I)
-	gpio21  : head phone plug/unplug detection2(I)
-	gpio25  : ec interrupt(I)
-	gpio27  : wifi power enable(O)
-	gpio28  : head phone plug/unplug detection1(I)
-	gpio68  : fan pwm(O)
-	gpio69  : fan touch(I)
-	gpio92  : frex gp0(O)
-	gpio93  : frex gp1(O)
-	gpio106 : mipi dsi resetn(O)
-	gpio111 : lcd touch resetn(O)
-*/
-/* die1 GPIO Function Description
-
-	gpio0   : lcd touch int(I)
-	gpio13  : gphy0 resetn(O)
-	gpio14  : gphy1 resetn(O)
-	gpio15  : bt wake host(I)
-	gpio16  : wifi enable(O)
-	gpio18  : bluetooth enable(O)
-	gpio19  : pcie prstn(I)
-	gpio20  : head phone plug/unplug detection2(I)
-	gpio21  : mipi dsi resetn(O)
-	gpio27  : tmp alert(I)
-	gpio28  : head phone plug/unplug detection1(I)
-	gpio68  : system led(O)
-	gpio69  : black light pwr_en(O)
-	gpio92  : frex gp0(O)
-	gpio93  : frex gp1(O)
-	gpio106 : host wak bt(O)
-	gpio111 : lcd touch resetn(O)
-*/
