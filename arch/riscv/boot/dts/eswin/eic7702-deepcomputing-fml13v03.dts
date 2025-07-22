@@ -307,13 +307,13 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_die0_gpio94_default>;
 	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
-	cpu-default-frequency = <CLK_FREQ_1800M>;
+	cpu-default-frequency = <CLK_FREQ_1400M>;
 };
 
 &d1_clock {
 	status = "okay";
 	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
-	cpu-default-frequency = <CLK_FREQ_1800M>;
+	cpu-default-frequency = <CLK_FREQ_1400M>;
 };
 
 &d0_reset {
@@ -517,8 +517,10 @@
 &d0_lpcpu {
 	status = "okay";
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die0_gpio0_default>;
-	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>;
+	pinctrl-0 = <&pinctrl_die0_gpio0_default &pinctrl_die1_gpio7_on_default>;
+	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>, <&d1_porta 7 IRQ_TYPE_EDGE_BOTH>;
+	soc-vdd-ctrl = <21 0 0>;
+	d2d-power-ctrl = <18 0 0>;
 };
 
 &d1_lpcpu {
@@ -1709,11 +1711,11 @@
 };
 
 &d2d {
-	status = "okay";
+	status = "disabled";
 };
 
 &d1_d2d {
-	status = "okay";
+	status = "disabled";
 };
 
 &pinctrl_die1_gpio69_default {
