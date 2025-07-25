@@ -217,19 +217,6 @@
 		status = "okay";
 	};
 
-	wifi_power: regulator-gpio27 {
-		compatible = "regulator-fixed";
-		regulator-name = "wifi-power";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		gpio = <&porta 27 GPIO_ACTIVE_HIGH>;
-		enable-active-high;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_die0_gpio27_default>;
-		regulator-always-on;
-		status = "okay";
-	};
-
 	rfkill_wifi {
 		compatible = "rfkill-gpio";
 		label = "Wi-Fi";
@@ -256,64 +243,64 @@
 	};
 };
 
-// &d0_cpu_opp_table {
-// 	opp-1500000000 {
-// 		opp-hz = /bits/ 64 <CLK_FREQ_1500M>;
-// 		opp-microvolt = <900000>;
-// 		clock-latency-ns = <70000>;
-// 	};
-// 	opp-1600000000 {
-// 		opp-hz = /bits/ 64 <CLK_FREQ_1600M>;
-// 		opp-microvolt = <900000>;
-// 		clock-latency-ns = <70000>;
-// 	};
-// 	opp-1700000000 {
-// 		opp-hz = /bits/ 64 <CLK_FREQ_1700M>;
-// 		opp-microvolt = <900000>;
-// 		clock-latency-ns = <70000>;
-// 	};
-// 	opp-1800000000 {
-// 		opp-hz = /bits/ 64 <CLK_FREQ_1800M>;
-// 		opp-microvolt = <900000>;
-// 		clock-latency-ns = <70000>;
-// 	};
-// };
+&d0_cpu_opp_table {
+	opp-1500000000 {
+		opp-hz = /bits/ 64 <CLK_FREQ_1500M>;
+		opp-microvolt = <900000>;
+		clock-latency-ns = <70000>;
+	};
+	opp-1600000000 {
+		opp-hz = /bits/ 64 <CLK_FREQ_1600M>;
+		opp-microvolt = <900000>;
+		clock-latency-ns = <70000>;
+	};
+	opp-1700000000 {
+		opp-hz = /bits/ 64 <CLK_FREQ_1700M>;
+		opp-microvolt = <900000>;
+		clock-latency-ns = <70000>;
+	};
+	opp-1800000000 {
+		opp-hz = /bits/ 64 <CLK_FREQ_1800M>;
+		opp-microvolt = <900000>;
+		clock-latency-ns = <70000>;
+	};
+};
 
-// &d1_cpu_opp_table {
-// 	opp-1500000000 {
-// 		opp-hz = /bits/ 64 <CLK_FREQ_1500M>;
-// 		opp-microvolt = <900000>;
-// 		clock-latency-ns = <70000>;
-// 	};
-// 	opp-1600000000 {
-// 		opp-hz = /bits/ 64 <CLK_FREQ_1600M>;
-// 		opp-microvolt = <900000>;
-// 		clock-latency-ns = <70000>;
-// 	};
-// 	opp-1700000000 {
-// 		opp-hz = /bits/ 64 <CLK_FREQ_1700M>;
-// 		opp-microvolt = <900000>;
-// 		clock-latency-ns = <70000>;
-// 	};
-// 	opp-1800000000 {
-// 		opp-hz = /bits/ 64 <CLK_FREQ_1800M>;
-// 		opp-microvolt = <900000>;
-// 		clock-latency-ns = <70000>;
-// 	};
-// };
+&d1_cpu_opp_table {
+	opp-1500000000 {
+		opp-hz = /bits/ 64 <CLK_FREQ_1500M>;
+		opp-microvolt = <900000>;
+		clock-latency-ns = <70000>;
+	};
+	opp-1600000000 {
+		opp-hz = /bits/ 64 <CLK_FREQ_1600M>;
+		opp-microvolt = <900000>;
+		clock-latency-ns = <70000>;
+	};
+	opp-1700000000 {
+		opp-hz = /bits/ 64 <CLK_FREQ_1700M>;
+		opp-microvolt = <900000>;
+		clock-latency-ns = <70000>;
+	};
+	opp-1800000000 {
+		opp-hz = /bits/ 64 <CLK_FREQ_1800M>;
+		opp-microvolt = <900000>;
+		clock-latency-ns = <70000>;
+	};
+};
 
 &d0_clock {
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_die0_gpio94_default>;
 	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
-	cpu-default-frequency = <CLK_FREQ_1400M>;
+	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
 &d1_clock {
 	status = "okay";
 	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
-	cpu-default-frequency = <CLK_FREQ_1400M>;
+	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
 &d0_reset {
@@ -521,6 +508,8 @@
 	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>, <&d1_porta 7 IRQ_TYPE_EDGE_BOTH>;
 	soc-vdd-ctrl = <21 0 0>;
 	d2d-power-ctrl = <18 0 0>;
+	npu-power-ctrl = <19 0 0>;
+	lcd-power-ctrl = <27 0 0>;
 };
 
 &d1_lpcpu {

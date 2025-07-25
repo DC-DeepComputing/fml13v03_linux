@@ -40,17 +40,17 @@
 
 			trips {
 				d1_threshold: trip-point0 {
-					temperature = <50000>;
+					temperature = <65000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
 				d1_target: trip-point1 {
-					temperature = <60000>;
+					temperature = <75000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
 				d1_crit: trip-point2 {
-					temperature     = <80000>;
+					temperature     = <105000>;
 					hysteresis      = <0>;
 					type            = "critical";
 				};
