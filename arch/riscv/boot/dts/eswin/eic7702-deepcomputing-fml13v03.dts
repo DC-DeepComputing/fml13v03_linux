@@ -504,7 +504,7 @@
 &d0_lpcpu {
 	status = "okay";
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die0_gpio0_default &pinctrl_die1_gpio7_on_default>;
+	pinctrl-0 = <&pinctrl_die0_gpio0_default>;
 	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>, <&d1_porta 7 IRQ_TYPE_EDGE_BOTH>;
 	soc-vdd-ctrl = <21 0 0>;
 	d2d-power-ctrl = <18 0 0>;
@@ -1002,9 +1002,13 @@
 
 &d0_usbdrd3_0 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die0_usb0_pwren_default>;
 };
 &d1_usbdrd3_0 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die1_usb0_pwren_default>;
 };
 
 &d0_usbdrd_dwc3_0 {
@@ -1021,10 +1025,14 @@
 
 &d0_usbdrd3_1 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die0_usb1_pwren_default>;
 };
 
 &d1_usbdrd3_1 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die1_usb1_pwren_default>;
 };
 
 &d0_usbdrd_dwc3_1 {
@@ -1487,27 +1495,6 @@
 	status = "okay";
 	eswin,syscfg = <&d0_sys_con 0x3C0 16>;
 	i2c-sda-hold-time-ns = <0x40>;
-	ina226@40 {
-		compatible = "ti,ina226";
-		#io-channel-cells = <1>;
-		label = "cpu_vdd";
-		reg = <0x40>;
-		shunt-resistor = <1000>;
-	};
-	ina226@41 {
-		compatible = "ti,ina226";
-		#io-channel-cells = <1>;
-		label = "d0_lpddr_vdd";
-		reg = <0x41>;
-		shunt-resistor = <1000>;
-	};
-	ina226@44 {
-		compatible = "ti,ina226";
-		#io-channel-cells = <1>;
-		label = "d0_soc_vdd";
-		reg = <0x44>;
-		shunt-resistor = <1000>;
-	};
 	tmp102@48 {
 		compatible = "ti,tmp102";
 		reg = <0x48>;
@@ -1522,27 +1509,7 @@
 	status = "okay";
 	eswin,syscfg = <&d1_sys_con 0x3C0 16>;
 	i2c-sda-hold-time-ns = <0x40>;
-	ina226@40 {
-			compatible = "ti,ina226";
-			#io-channel-cells = <1>;
-			label = "vdd_dc_in";
-			reg = <0x40>;
-			shunt-resistor = <1000>;
-		};
-	ina226@41 {
-			compatible = "ti,ina226";
-			#io-channel-cells = <1>;
-			label = "d1_lpddr_vdd";
-			reg = <0x41>;
-			shunt-resistor = <1000>;
-		};
-	ina226@44 {
-			compatible = "ti,ina226";
-			#io-channel-cells = <1>;
-			label = "d1_soc_vdd";
-			reg = <0x44>;
-			shunt-resistor = <1000>;
-		};
+	eswin,syscfg = <&d1_sys_con 0x3C0 16>;
 	tmp102@48 {
 		compatible = "ti,tmp102";
 		reg = <0x48>;
