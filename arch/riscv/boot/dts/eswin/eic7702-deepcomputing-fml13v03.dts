@@ -160,6 +160,14 @@
 				<1 1 10>;
 	};
 
+	dummy_3v3: regulator-dummy {
+		compatible = "regulator-fixed";
+		regulator-name = "dummy";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
 	backlight_regulator: regulator-backlight {
 		compatible = "regulator-fixed";
 		regulator-name = "backlight-power";
@@ -1501,8 +1509,13 @@
 		label = "d0_board_tmp";
 		#thermal-sensor-cells = <1>;
 	};
+	eeprom@50 {
+		compatible = "atmel,24c02";
+		reg = <0x50>;
+		pagesize = <8>;
+		vcc-supply = <&dummy_3v3>;
+	};
 };
-
 
 &d1_aon_i2c0 {
 	/* ina226x4 */
