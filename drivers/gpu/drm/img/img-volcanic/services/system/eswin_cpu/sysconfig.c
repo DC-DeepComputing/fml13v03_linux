@@ -350,8 +350,9 @@ void riscv_flush_cache_range(IMG_HANDLE hSysData,
 PVRSRV_DEVICE_CONFIG *IGPUGetDevConfigByDevNum(IMG_UINT32 ui32DevNum)
 {
 	PVRSRV_DATA *psPVRSRVData = PVRSRVGetPVRSRVData();
+	PVRSRV_DRIVER_MODE eRetMode = DRIVER_MODE_NATIVE;
 	PVRSRV_DEVICE_NODE *psDevNode;
-	PVRSRV_DEVICE_CONFIG *psDevConfig = NULL;
+    PVRSRV_DEVICE_CONFIG *psDevConfig = NULL;
 
 	OSWRLockAcquireRead(psPVRSRVData->hDeviceNodeListLock);
 
@@ -437,7 +438,7 @@ static PVRSRV_ERROR DeviceConfigCreate(void *pvOSDevice, PVRSRV_DEVICE_CONFIG **
 
 	psRGXData = (RGX_DATA *)((IMG_CHAR *)psDevConfig + sizeof(*psDevConfig));
 	psRGXTimingInfo = (RGX_TIMING_INFORMATION *)((IMG_CHAR *)psRGXData + sizeof(*psRGXData));
-	psDevConfig->eDriverMode = DRIVER_MODE_NATIVE;
+    psDevConfig->eDriverMode = DRIVER_MODE_NATIVE;
 	eError = PhysHeapsCreate(&pasPhysHeaps, &uiPhysHeapCount, psDevConfig);
 	if (eError)
 	{
@@ -599,7 +600,7 @@ static PVRSRV_ERROR DeviceConfigCreate(void *pvOSDevice, PVRSRV_DEVICE_CONFIG **
 	psDevConfig->pvOSDevice				= pvOSDevice;
 	psDevConfig->pszVersion             = NULL;
 #ifndef NO_HARDWARE
-	psDevConfig->pszName = (IMG_CHAR *)pdev->name;
+	psDevConfig->pszName = pdev->name;
 	printk(KERN_ALERT "%s: --------------->dev_name=%s\n", __func__, psDevConfig->pszName);
 
 	if (of_address_to_resource(np, 0, &res))

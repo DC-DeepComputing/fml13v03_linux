@@ -1603,6 +1603,7 @@ static int eswin_pinctrl_probe(struct platform_device *pdev)
 
 	return 0;
 }
+
 static int eswin_pinctrl_remove(struct platform_device *platform_dev)
 {
 	struct eswin_pinctrl *eswin_pinctrl_ptr = platform_get_drvdata(platform_dev);

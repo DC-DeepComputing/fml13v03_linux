@@ -30,7 +30,6 @@ int es_dsp_send_irq(struct es_dsp_hw *, dsp_request_t *);
 int es_dsp_reboot_core(struct es_dsp_hw *);
 int es_dsp_enable(struct es_dsp_hw *);
 void es_dsp_disable(struct es_dsp_hw *);
-int es_dsp_get_rate(struct es_dsp_hw *hw);
 int es_dsp_set_rate(struct es_dsp_hw *, unsigned long *rate);
 void es_dsp_reset(struct es_dsp_hw *);
 void es_dsp_halt(struct es_dsp_hw *);
@@ -63,10 +62,7 @@ int es_dsp_core_clk_disable(struct es_dsp *dsp);
 
 int dsp_get_resource(struct platform_device *pdev, struct es_dsp *dsp);
 int dsp_put_resource(struct es_dsp *dsp);
-int es_dsp_map_resource(struct es_dsp *dsp);
-int es_dsp_unmap_resource(struct es_dsp *dsp);
 
-void es_dsp_put_subsys(struct es_dsp *dsp);
 int es_dsp_get_subsys(struct platform_device *pdev, struct es_dsp *dsp);
 void dsp_free_hw(struct es_dsp *dsp);
 int dsp_alloc_hw(struct platform_device *pdev, struct es_dsp *dsp);

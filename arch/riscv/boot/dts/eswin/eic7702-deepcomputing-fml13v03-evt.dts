@@ -43,7 +43,7 @@
 / {
 	#address-cells = <2>;
 	#size-cells = <2>;
-	model = "DeepComputing FML13V03";
+	model = "DeepComputing FML13V03 EVT";
 	compatible = "deepcomputing,fml13v03", "sifive,hifive-unmatched-a00", "sifive,fu740-c000",
 		     "sifive,fu740", "eswin,eic7700";
 
@@ -109,14 +109,19 @@
 			reg = <0x0 0x79000000 0x0 0x400000>;
 		};
 
-		g2d_4GB_boundary_reserved_4k {
+		ramoops@fff00000 {
+			compatible = "ramoops";
+			reg = <0x0 0xfff00000 0x0 0x100000>;
+			console-size = <0x40000>;
+			record-size = <0x40000>;
+			ftrace-size = <0x40000>;
+			pmsg-size = <0x40000>;
 			no-map;
-			reg = <0x0 0xfffff000 0x0 0x1000>;
 		};
 
-		g2d_8GB_boundary_reserved_4k {
+		g2d_8GB_boundary_reserved_4k { // 32M for npu0 runtime
 			no-map;
-			reg = <0x1 0xfffff000 0x0 0x1000>;
+			reg = <0x1 0xfe000000 0x0 0x2000000>;
 		};
 
 		g2d_12GB_boundary_reserved_4k {
@@ -140,9 +145,9 @@
 			reg = <0x20 0xfffff000 0x0 0x1000>;
 		};
 
-		d1_g2d_8GB_boundary_reserved_4k {
+		d1_g2d_8GB_boundary_reserved_4k { // 32M for npu1 runtime
 			no-map;
-			reg = <0x21 0xfffff000 0x0 0x1000>;
+			reg = <0x21 0xfe000000 0x0 0x2000000>;
 		};
 
 		mmz_nid_1_part_0 {
@@ -256,49 +261,13 @@
 };
 
 &d0_cpu_opp_table {
-	opp-1500000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1500M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1600000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1600M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1700000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1700M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1800000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1800M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
+	/delete-node/ opp-1200000000;
+	/delete-node/ opp-1300000000;
 };
 
 &d1_cpu_opp_table {
-	opp-1500000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1500M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1600000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1600M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1700000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1700M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1800000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1800M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
+	/delete-node/ opp-1200000000;
+	/delete-node/ opp-1300000000;
 };
 
 &d0_clock {
@@ -306,15 +275,11 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_die0_gpio19_default>;
 	cpu-voltage-gpios = <&porta 19 GPIO_ACTIVE_HIGH>;
-	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
 &d1_clock {
 	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die1_gpio104_default>;
-	cpu-voltage-gpios = <&portd 8 GPIO_ACTIVE_HIGH>;
-	cpu-default-frequency = <CLK_FREQ_1800M>;
+	cpu-voltage-gpios = <&porta 19 GPIO_ACTIVE_HIGH>;
 };
 
 &d0_reset {
@@ -518,8 +483,9 @@
 &d0_lpcpu {
 	status = "okay";
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die0_gpio0_default>;
-	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>;
+	pinctrl-0 = <&pinctrl_die0_gpio0_default &pinctrl_die1_gpio7_on_default>;
+	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>, <&d1_porta 7 IRQ_TYPE_EDGE_BOTH>;
+	vddctrl = <104 0 1>;
 };
 
 &d1_lpcpu {
@@ -603,20 +569,22 @@
 &pcie {
 	/* m.2 ssd key m */
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die0_gpio27_default
+				 &pinctrl_die1_gpio16_default
+				 &pinctrl_die1_gpio18_default>;
 };
 
 &d1_pcie {
 	/* wifi key e */
 	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die1_gpio16_default
-				 &pinctrl_die1_gpio18_default>;
 };
 
 &d0_npu{
 	status = "okay";
 	npu-supply=<&d0_npu_vcc>;
 };
+
 &d1_npu {
 	status = "okay";
 	npu-supply=<&d1_npu_vcc>;
@@ -965,6 +933,7 @@
 	drive-impedance-ohm = <33>;
 	enable-cmd-pullup;
 	enable-data-pullup;
+	disable-wp;
 	no-sdio;
 	no-mmc;
 };
@@ -1054,7 +1023,7 @@
 };
 
 &d1_dmac0 {
-	status = "disabled";
+	status = "okay";
 };
 
 &d0_aon_dmac {
@@ -1186,7 +1155,7 @@
 	cs-gpios = <&portc 24 GPIO_ACTIVE_LOW>;
 	num-cs = <1>;
 
-	fwos_ec: ec@0 {
+	fwos_ec: spi@0 {
 		compatible = "google,cros-ec-spi";
 		reg = <0>;
 		status = "okay";
@@ -1496,6 +1465,7 @@
 	/* ina226x3 */
 	status = "okay";
 	i2c-sda-hold-time-ns = <0x40>;
+	eswin,syscfg = <&d0_sys_con 0x3C0 16>;
 	ina226@40 {
 		compatible = "ti,ina226";
 		#io-channel-cells = <1>;
@@ -1577,9 +1547,7 @@
 	clock-names = "pclk";
 	clocks = <&d1_clock EIC7700_CLK_LSP_TIMER_PCLK>;
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die1_pwm0_default>;
-	pinctrl-1 = <&pinctrl_die1_gpio68_default>;
-	fan-gpios = <&d1_portc 4 GPIO_ACTIVE_HIGH>;
+	pinctrl-0 = <&d1_pinctrl_pwm0_default>;
 };
 
 &fan_control {
@@ -1751,8 +1719,7 @@
 	gpio18  : ina226 alert(I)
 	gpio20  : lcd touch int(I)
 	gpio21  : head phone plug/unplug detection2(I)
-	gpio25  : ec interrupt(I)
-	gpio27  : wifi power enable(O)
+	gpio27  : black light pwr_en(O)
 	gpio28  : head phone plug/unplug detection1(I)
 	gpio68  : fan pwm(O)
 	gpio69  : fan touch(I)
@@ -1767,8 +1734,8 @@
 	gpio13  : gphy0 resetn(O)
 	gpio14  : gphy1 resetn(O)
 	gpio15  : bt wake host(I)
-	gpio16  : wifi enable(O)
-	gpio18  : bluetooth enable(O)
+	gpio16  : sdio wifi disable(O)
+	gpio18  : sdio wifi wake host(I)
 	gpio19  : pcie prstn(I)
 	gpio20  : head phone plug/unplug detection2(I)
 	gpio21  : mipi dsi resetn(O)

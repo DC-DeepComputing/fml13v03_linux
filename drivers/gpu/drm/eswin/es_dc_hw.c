@@ -33,7 +33,6 @@
 #include "es_drm.h"
 #include "es_type.h"
 #include "es_dc_hw.h"
-
 static const u32 horKernel[] = {
 	0x00000000, 0x20000000, 0x00002000, 0x00000000, 0x00000000, 0x00000000,
 	0x23fd1c03, 0x00000000, 0x00000000, 0x00000000, 0x181f0000, 0x000027e1,

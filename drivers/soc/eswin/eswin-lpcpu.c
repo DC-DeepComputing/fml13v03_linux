@@ -397,9 +397,9 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 		if (ret > 2)
 			config_die = buff[2] ? 1 : 0;
 		boot_config_msg = config_gpio | (config_die << 7) | (config_polarity << 24) |
-			(1 << 30);
+            (1 << 30);
 		dev_info(dev, "soc vdd config gpio: die %d, port %d, polarity %s\n",
-			config_die, config_gpio, !config_polarity ? "positive" : "negative");
+                config_die, config_gpio, !config_polarity ? "positive" : "negative");
 	}
 	ret = of_property_read_variable_u32_array(pdev->dev.of_node, "d2d-power-ctrl", buff, 1, 3);
 	if (ret > 0) {
@@ -409,7 +409,7 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 		if (ret > 2)
 			config_die = buff[2] ? 1 : 0;
 		boot_config_msg |= (config_gpio << 8) | (config_die << 15) |
-			(config_polarity << 25) | (1 << 30);
+            (config_polarity << 25) | (1 << 30);
 		dev_info(dev, "d2d power config gpio: die %d, port %d, polarity %s\n",
                 config_die, config_gpio, !config_polarity ? "positive" : "negative");
 	}
@@ -424,7 +424,7 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 		boot_config_msg |= (config_gpio << 16) | (config_die << 23) |
 			(config_polarity << 26) | (1 << 30);
 		dev_info(dev, "npu power config gpio: die %d, port %d, polarity %s\n",
-               config_die, config_gpio, !config_polarity ? "positive" : "negative");
+                config_die, config_gpio, !config_polarity ? "positive" : "negative");
 	}
 
 	ret = of_property_read_variable_u32_array(pdev->dev.of_node, "lcd-power-ctrl", buff, 1, 3);
@@ -437,7 +437,7 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 		boot_config_msg_l = (config_gpio << 24) | (config_die << 31);
 		boot_config_msg |= (config_polarity << 27) | (1 << 30);
 		dev_info(dev, "lcd power config gpio: die %d, port %d, polarity %s\n",
-               config_die, config_gpio, !config_polarity ? "positive" : "negative");
+                config_die, config_gpio, !config_polarity ? "positive" : "negative");
 	}
 
 	mutex_init(&lpcpu->lock);
@@ -485,7 +485,7 @@ static int eswin_lpcpu_probe(struct platform_device *pdev)
 	}
 
 	ret = lpcpu_boot_status(lpcpu->mbox_channel, boot_config_msg, boot_config_msg_l);
- 	if (ret < 0) {
+	if (ret < 0) {
 		dev_err(dev, "Send message to lpcpu via mailbox failed!\n");
 		goto err_mmio;
 	}

@@ -347,6 +347,7 @@ static void vo_qos_cfg(int die_id)
 	return;
 }
 
+
 static void es_dc_dump_enable(struct device *dev, dma_addr_t addr,
 			      unsigned int pitch)
 {
@@ -382,7 +383,8 @@ static int es_dc_suspend(struct device *dev, struct drm_device *drm_dev)
 static int es_dc_resume(struct device *dev, struct drm_device *drm_dev)
 {
 	struct es_dc *dc = dev_get_drvdata(dev);
-	int irq, ret, die_id;
+	int ret = 0;
+	int die_id;
 #ifdef CONFIG_ESWIN_MMU
 	struct es_drm_private *priv = drm_dev->dev_private;
 #endif
@@ -1123,7 +1125,7 @@ static int dc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct es_dc *dc;
-	int ret, die_id;
+	int irq, ret, die_id;
 
 	dc = devm_kzalloc(dev, sizeof(*dc), GFP_KERNEL);
 	if (!dc)
@@ -1238,7 +1240,6 @@ static int dc_probe(struct platform_device *pdev)
 	}
 
 	dev_set_drvdata(dev, dc);
-
 	ret = of_property_read_u32(dev->of_node, "numa-node-id", &die_id);
 	if (ret) {
 		DRM_DEV_ERROR(dev, "Failed to read index property, ret = %d\n",
@@ -1246,7 +1247,6 @@ static int dc_probe(struct platform_device *pdev)
 		return ret;
 	}
 	vo_qos_cfg(die_id);
-
 	return component_add(dev, &dc_component_ops);
 }
 

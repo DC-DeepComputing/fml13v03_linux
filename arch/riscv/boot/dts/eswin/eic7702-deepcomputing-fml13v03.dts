@@ -56,7 +56,6 @@
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
-
 	cpus {
 		timebase-frequency = <RTCCLK_FREQ>;
 	};
@@ -109,14 +108,19 @@
 			reg = <0x0 0x79000000 0x0 0x400000>;
 		};
 
-		g2d_4GB_boundary_reserved_4k {
+		ramoops@fff00000 {
+			compatible = "ramoops";
+			reg = <0x0 0xfff00000 0x0 0x100000>;
+			console-size = <0x40000>;
+			record-size = <0x40000>;
+			ftrace-size = <0x40000>;
+			pmsg-size = <0x40000>;
 			no-map;
-			reg = <0x0 0xfffff000 0x0 0x1000>;
 		};
 
-		g2d_8GB_boundary_reserved_4k {
+		g2d_8GB_boundary_reserved_4k { // 32M for npu0 runtime
 			no-map;
-			reg = <0x1 0xfffff000 0x0 0x1000>;
+			reg = <0x1 0xfe000000 0x0 0x2000000>;
 		};
 
 		g2d_12GB_boundary_reserved_4k {
@@ -140,9 +144,9 @@
 			reg = <0x20 0xfffff000 0x0 0x1000>;
 		};
 
-		d1_g2d_8GB_boundary_reserved_4k {
+		d1_g2d_8GB_boundary_reserved_4k { // 32M for npu1 runtime
 			no-map;
-			reg = <0x21 0xfffff000 0x0 0x1000>;
+			reg = <0x21 0xfe000000 0x0 0x2000000>;
 		};
 
 		mmz_nid_1_part_0 {
@@ -225,6 +229,19 @@
 		status = "okay";
 	};
 
+	wifi_power: regulator-gpio27 {
+		compatible = "regulator-fixed";
+		regulator-name = "wifi-power";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&porta 27 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_die0_gpio27_default>;
+		regulator-always-on;
+		status = "okay";
+	};
+
 	rfkill_wifi {
 		compatible = "rfkill-gpio";
 		label = "Wi-Fi";
@@ -251,50 +268,27 @@
 	};
 };
 
-&d0_cpu_opp_table {
-	opp-1500000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1500M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
+&thermal_zones {
+	thermal0 {
+		cooling-maps {
+			/delete-node/ map0;
+		};
 	};
-	opp-1600000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1600M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1700000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1700M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1800000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1800M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
+	d1_thermal0 {
+		cooling-maps {
+			/delete-node/ map0;
+		};
 	};
 };
 
+&d0_cpu_opp_table {
+	/delete-node/ opp-1200000000;
+	/delete-node/ opp-1300000000;
+};
+
 &d1_cpu_opp_table {
-	opp-1500000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1500M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1600000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1600M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1700000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1700M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
-	opp-1800000000 {
-		opp-hz = /bits/ 64 <CLK_FREQ_1800M>;
-		opp-microvolt = <900000>;
-		clock-latency-ns = <70000>;
-	};
+	/delete-node/ opp-1200000000;
+	/delete-node/ opp-1300000000;
 };
 
 &d0_clock {
@@ -302,13 +296,11 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_die0_gpio94_default>;
 	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
-	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
 &d1_clock {
 	status = "okay";
 	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
-	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
 &d0_reset {
@@ -659,7 +651,7 @@
 	status = "okay";
 };
 &d1_gpu {
-	status = "okay";
+	status = "disabled";
 };
 
 &gc820 {
@@ -942,7 +934,7 @@
 
 &sdhci_emmc {
 	/* emmc */
-	status = "okay";
+	status = "disabled";
 	delay_code = <0x17>;
 	drive-impedance-ohm = <50>;
 	enable-cmd-pullup;
@@ -963,6 +955,7 @@
 	drive-impedance-ohm = <33>;
 	enable-cmd-pullup;
 	enable-data-pullup;
+	disable-wp;
 	no-sdio;
 	no-mmc;
 };
@@ -1060,7 +1053,7 @@
 };
 
 &d1_dmac0 {
-	status = "disabled";
+	status = "okay";
 };
 
 &d0_aon_dmac {
@@ -1499,7 +1492,6 @@
 };
 
 &d0_aon_i2c0 {
-	/* ina226x3 */
 	status = "okay";
 	eswin,syscfg = <&d0_sys_con 0x3C0 16>;
 	i2c-sda-hold-time-ns = <0x40>;
@@ -1518,9 +1510,7 @@
 };
 
 &d1_aon_i2c0 {
-	/* ina226x4 */
 	status = "okay";
-	eswin,syscfg = <&d1_sys_con 0x3C0 16>;
 	i2c-sda-hold-time-ns = <0x40>;
 	eswin,syscfg = <&d1_sys_con 0x3C0 16>;
 	tmp102@48 {
