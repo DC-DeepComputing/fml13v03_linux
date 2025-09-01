@@ -160,6 +160,14 @@
 				<1 1 10>;
 	};
 
+	dummy_3v3: regulator-dummy {
+		compatible = "regulator-fixed";
+		regulator-name = "dummy";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
 	backlight_regulator: regulator-backlight {
 		compatible = "regulator-fixed";
 		regulator-name = "backlight-power";
@@ -170,7 +178,8 @@
 
 	backlight: backlight {
 		compatible = "pwm-backlight";
-		pwms = <&d1_pwm0 0 200000 PWM_POLARITY_INVERTED>;
+		pinctrl-0 = <&pinctrl_die0_pwm2_default>;
+		pwms = <&pwm0 2 200000 PWM_POLARITY_INVERTED>;
 		power-supply = <&backlight_regulator>;
 		status = "okay";
 		brightness-levels = <
@@ -208,23 +217,10 @@
 		regulator-name = "camera-light-power";
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
-		gpio = <&d1_portc 5 GPIO_ACTIVE_HIGH>;
+		gpio = <&portc 28 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_die1_gpio69_default>;
-		regulator-always-on;
-		status = "okay";
-	};
-
-	wifi_power: regulator-gpio27 {
-		compatible = "regulator-fixed";
-		regulator-name = "wifi-power";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		gpio = <&porta 27 GPIO_ACTIVE_HIGH>;
-		enable-active-high;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_die0_gpio27_default>;
+		pinctrl-0 = <&pinctrl_die0_gpio92_default>;
 		regulator-always-on;
 		status = "okay";
 	};
@@ -304,16 +300,14 @@
 &d0_clock {
 	status = "okay";
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die0_gpio19_default>;
-	cpu-voltage-gpios = <&porta 19 GPIO_ACTIVE_HIGH>;
+	pinctrl-0 = <&pinctrl_die0_gpio94_default>;
+	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
 	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
 &d1_clock {
 	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die1_gpio104_default>;
-	cpu-voltage-gpios = <&portd 8 GPIO_ACTIVE_HIGH>;
+	cpu-voltage-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
 	cpu-default-frequency = <CLK_FREQ_1800M>;
 };
 
@@ -519,7 +513,11 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_die0_gpio0_default>;
-	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>;
+	irq-gpios = <&porta 0 GPIO_ACTIVE_HIGH>, <&d1_porta 7 IRQ_TYPE_EDGE_BOTH>;
+	soc-vdd-ctrl = <21 0 0>;
+	d2d-power-ctrl = <18 0 0>;
+	npu-power-ctrl = <19 0 0>;
+	lcd-power-ctrl = <27 0 0>;
 };
 
 &d1_lpcpu {
@@ -551,6 +549,21 @@
 		output-high;
 		input-enable = <0>;
 		bias-pull-up = <1>;
+		bias-pull-down = <0>;
+	};
+};
+
+&pinctrl_die0_gpio62_default {
+	mux {
+		groups = "gpio62_group";
+		function = "gpio62_func";
+	};
+	conf {
+		groups = "gpio62_group";
+		drive-strength = <2>;
+		output-high;
+		input-enable = <0>;
+		bias-pull-up = <0>;
 		bias-pull-down = <0>;
 	};
 };
@@ -601,7 +614,6 @@
 &d0_npu{
 	status = "okay";
 	npu-supply=<&d0_npu_vcc>;
-	npu_def_high_vol = <1100000>;
 };
 &d1_npu {
 	status = "okay";
@@ -998,9 +1010,13 @@
 
 &d0_usbdrd3_0 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die0_usb0_pwren_default>;
 };
 &d1_usbdrd3_0 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die1_usb0_pwren_default>;
 };
 
 &d0_usbdrd_dwc3_0 {
@@ -1017,10 +1033,14 @@
 
 &d0_usbdrd3_1 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die0_usb1_pwren_default>;
 };
 
 &d1_usbdrd3_1 {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die1_usb1_pwren_default>;
 };
 
 &d0_usbdrd_dwc3_1 {
@@ -1167,12 +1187,12 @@
 
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_die0_spi2_default
-				 &pinctrl_die0_gpio88_default>;	// SPI pin multiplexing
+				 &pinctrl_die0_gpio6_default>;	// SPI pin multiplexing
 
-	cs-gpios = <&portc 24 GPIO_ACTIVE_LOW>;
+	cs-gpios = <&porta 6 GPIO_ACTIVE_LOW>;
 	num-cs = <1>;
 
-	fwos_ec: spi@0 {
+	fwos_ec: ec@0 {
 		compatible = "google,cros-ec-spi";
 		reg = <0>;
 		status = "okay";
@@ -1186,8 +1206,11 @@
 		interrupt-parent = <&porta>;
 		interrupts = <25 IRQ_TYPE_LEVEL_LOW>;
 
+		power-status-gpios = <&portc 30 GPIO_ACTIVE_HIGH>;
+
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_die0_gpio25_default>;
+		pinctrl-0 = <&pinctrl_die0_gpio25_default
+					 &pinctrl_die0_gpio62_default>;
 	};
 };
 
@@ -1198,7 +1221,7 @@
 
 &bootspi {
 	/* spi flash */
-	status = "okay";
+	status = "disabled";
 	num-cs = <1>;
 	cs-gpios = <&portd 0 GPIO_ACTIVE_LOW>;
 	wp-gpios = <&portd 4 GPIO_ACTIVE_LOW>;
@@ -1383,10 +1406,10 @@
 		reg = <0x2c>;
 		hid-descr-addr = <0x0020>;
 		post-power-on-delay-ms = <200>;
-		interrupt-parent = <&d1_porta>;
-		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
+		interrupt-parent = <&porta>;
+		interrupts = <20 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_die1_gpio0_default>;
+		pinctrl-0 = <&pinctrl_die0_gpio20_default>;
 		status = "okay";
 	};
 
@@ -1478,62 +1501,28 @@
 &d0_aon_i2c0 {
 	/* ina226x3 */
 	status = "okay";
+	eswin,syscfg = <&d0_sys_con 0x3C0 16>;
 	i2c-sda-hold-time-ns = <0x40>;
-	ina226@40 {
-		compatible = "ti,ina226";
-		#io-channel-cells = <1>;
-		label = "cpu_vdd";
-		reg = <0x40>;
-		shunt-resistor = <1000>;
-	};
-	ina226@41 {
-		compatible = "ti,ina226";
-		#io-channel-cells = <1>;
-		label = "d0_lpddr_vdd";
-		reg = <0x41>;
-		shunt-resistor = <1000>;
-	};
-	ina226@44 {
-		compatible = "ti,ina226";
-		#io-channel-cells = <1>;
-		label = "d0_soc_vdd";
-		reg = <0x44>;
-		shunt-resistor = <1000>;
-	};
 	tmp102@48 {
 		compatible = "ti,tmp102";
 		reg = <0x48>;
 		label = "d0_board_tmp";
 		#thermal-sensor-cells = <1>;
 	};
+	eeprom@50 {
+		compatible = "atmel,24c02";
+		reg = <0x50>;
+		pagesize = <8>;
+		vcc-supply = <&dummy_3v3>;
+	};
 };
-
 
 &d1_aon_i2c0 {
 	/* ina226x4 */
 	status = "okay";
+	eswin,syscfg = <&d1_sys_con 0x3C0 16>;
 	i2c-sda-hold-time-ns = <0x40>;
-	ina226@40 {
-			compatible = "ti,ina226";
-			#io-channel-cells = <1>;
-			label = "vdd_dc_in";
-			reg = <0x40>;
-			shunt-resistor = <1000>;
-		};
-	ina226@41 {
-			compatible = "ti,ina226";
-			#io-channel-cells = <1>;
-			label = "d1_lpddr_vdd";
-			reg = <0x41>;
-			shunt-resistor = <1000>;
-		};
-	ina226@44 {
-			compatible = "ti,ina226";
-			#io-channel-cells = <1>;
-			label = "d1_soc_vdd";
-			reg = <0x44>;
-			shunt-resistor = <1000>;
-		};
+	eswin,syscfg = <&d1_sys_con 0x3C0 16>;
 	tmp102@48 {
 		compatible = "ti,tmp102";
 		reg = <0x48>;
@@ -1547,11 +1536,11 @@
 };
 
 &pwm0 {
-	/* fan */
+	/* fan, backlight */
 	status = "okay";
 	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&pinctrl_die0_pwm0_default>;
-	pinctrl-1 = <&pinctrl_die0_gpio68_default>;
+	pinctrl-0 = <&pinctrl_die0_pwm0_default &pinctrl_die0_pwm2_default>;
+	pinctrl-1 = <&pinctrl_die0_gpio68_default &pinctrl_die0_gpio41_default>;
 	fan-gpios = <&portc 4 GPIO_ACTIVE_HIGH>;
 };
 
@@ -1560,7 +1549,7 @@
 	clock-names = "pclk";
 	clocks = <&d1_clock EIC7700_CLK_LSP_TIMER_PCLK>;
 	pinctrl-names = "default";
-	pinctrl-0 = <&d1_pinctrl_pwm0_default>;
+	pinctrl-0 = <&pinctrl_die1_pwm0_default>;
 	pinctrl-1 = <&pinctrl_die1_gpio68_default>;
 	fan-gpios = <&d1_portc 4 GPIO_ACTIVE_HIGH>;
 };
@@ -1571,11 +1560,15 @@
 };
 
 &pvt0 {
-	status = "disabled";
+	status = "okay";
+	compatible = "eswin,eswin-dummy-pvt-cpu";
+	eswin,syscon = <&d0_sys_con 0x0668>;
 };
 
 &d1_pvt0 {
-	status = "disabled";
+	status = "okay";
+	compatible = "eswin,eswin-dummy-pvt-cpu";
+	eswin,syscon = <&d1_sys_con 0x0668>;
 };
 
 &pvt1 {
@@ -1687,11 +1680,11 @@
 };
 
 &d2d {
-	status = "okay";
+	status = "disabled";
 };
 
 &d1_d2d {
-	status = "okay";
+	status = "disabled";
 };
 
 &pinctrl_die1_gpio69_default {
@@ -1719,44 +1712,3 @@
 		status = "okay";
 	};
 };
-
-/* die0 GPIO Function Description
-
-	gpio0   : pcie prstn(I)
-	gpio11  : tmp alert(I)
-	gpio13  : tf card detect(I)
-	gpio14  : gphy1 resetn(O)
-	gpio15  : gphy0 resetn(O)
-	gpio18  : ina226 alert(I)
-	gpio20  : lcd touch int(I)
-	gpio21  : head phone plug/unplug detection2(I)
-	gpio25  : ec interrupt(I)
-	gpio27  : wifi power enable(O)
-	gpio28  : head phone plug/unplug detection1(I)
-	gpio68  : fan pwm(O)
-	gpio69  : fan touch(I)
-	gpio92  : frex gp0(O)
-	gpio93  : frex gp1(O)
-	gpio106 : mipi dsi resetn(O)
-	gpio111 : lcd touch resetn(O)
-*/
-/* die1 GPIO Function Description
-
-	gpio0   : lcd touch int(I)
-	gpio13  : gphy0 resetn(O)
-	gpio14  : gphy1 resetn(O)
-	gpio15  : bt wake host(I)
-	gpio16  : wifi enable(O)
-	gpio18  : bluetooth enable(O)
-	gpio19  : pcie prstn(I)
-	gpio20  : head phone plug/unplug detection2(I)
-	gpio21  : mipi dsi resetn(O)
-	gpio27  : tmp alert(I)
-	gpio28  : head phone plug/unplug detection1(I)
-	gpio68  : system led(O)
-	gpio69  : black light pwr_en(O)
-	gpio92  : frex gp0(O)
-	gpio93  : frex gp1(O)
-	gpio106 : host wak bt(O)
-	gpio111 : lcd touch resetn(O)
-*/

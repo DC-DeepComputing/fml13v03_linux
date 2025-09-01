@@ -175,7 +175,12 @@
 			linux,default-trigger = "heartbeat";
 		};
 	};
-
+	reg_vcc1v8: vcc1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc1v8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
 };
 
 &D1CACHE {
@@ -926,6 +931,9 @@
 	enable-data-pullup;
 	no-sdio;
 	no-mmc;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die0_gpio13_default>;
+	cd-gpios = <&porta 13 GPIO_ACTIVE_LOW>;
 };
 
 &d1_sdio0 {
@@ -939,6 +947,7 @@
 	non-removable;
 	no-sd;
 	no-mmc;
+	vqmmc-supply = <&reg_vcc1v8>;
 	aw315:wifi_aw3155@0 {
 		compatible = "aml_w1_sdio";
 		reg = <0x0>;
@@ -949,6 +958,12 @@
 		pinctrl-1 = <&pinctrl_die1_gpio16_default>;
 		irq-gpios = <&d1_porta 18 GPIO_ACTIVE_HIGH>;
 		rst-gpios = <&d1_porta 16 GPIO_ACTIVE_HIGH>;
+	};
+	mdhd_wlan {
+		compatible = "android,bcmdhd_wlan";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_die1_gpio16_default>;
+		gpio_wl_reg_on = <&d1_porta 16 GPIO_ACTIVE_HIGH>;
 	};
 };
 
@@ -1441,27 +1456,6 @@
 &d0_i2c8 {
 	/* io extended for mipi csi */
 	status = "okay";
-	tca6416_0: gpio@20 {
-		compatible = "ti,tca6416";
-		reg = <0x20>;
-		gpio-controller; /* IRQ not connected */
-		#gpio-cells = <2>;
-		gpio-line-names = "MIPI_CSI0_PWDN", "MIPI_CSI0_RESET", "MIPI_CSI1_FBC", "MIPI_CSI1_ENB",
-				"MIPI_CSI1_RESET", "MIPI_CSI1_PWDN", "FREX_GP0", "",
-				"MIPI_CSI0_ENB", "MIPI_CSI0_FBC", "FREX_GP2", "MIPI_CSI2_FBC",
-				"MIPI_CSI2_ENB", "FREX_GP1", "MIPI_CSI2_RESET", "MIPI_CSI2_PWDN";
-	};
-	tca6416_1: gpio@21 {
-		compatible = "ti,tca6416";
-		reg = <0x21>;
-		gpio-controller;
-		#gpio-cells = <2>;
-		/* IRQ not connected */
-		gpio-line-names = "MIPI_CSI3_PWDN", "MIPI_CSI3_RESET", "MIPI_CSI3_ENB", "MIPI_CSI3_FBC",
-				"MIPI_CSI4_PWDN", "MIPI_CSI4_RESET", "MIPI_CSI4_ENB", "MIPI_CSI4_FBC",
-				"MIPI_CSI5_FBC", "MIPI_CSI5_ENB", "MIPI_CSI5_RESET", "MIPI_CSI5_PWDN",
-				"", "", "", "";
-	};
 };
 &d1_i2c8 {
 	status = "disabled";

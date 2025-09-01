@@ -97,6 +97,7 @@ struct eic770x_pmu {
 	void __iomem 		*base;
 	struct eic770x_domain_info *domain_info;
 	unsigned int		 num_domains;
+	atomic_t 			 open_domains;
 	struct generic_pm_domain **genpd;
 	struct genpd_onecell_data genpd_data;
 };
@@ -170,14 +171,17 @@ static int eic770x_pmu_domain_on(struct generic_pm_domain *genpd)
 	int ret;
 	u32 val;
 
+	atomic_inc(&pmu->open_domains);
+
 	eic770x_pmu_get_domain_state(pmd, &is_on);
 	if (is_on == true) {
-		dev_info(pmu->dev, "pm domain [%s] was already in power on state.\n",
-			pmd->genpd.name);
+		dev_info(pmu->dev, "[%s] was already in power on state. %d opened domains.\n",
+							pmd->genpd.name,
+							atomic_read(&pmu->open_domains));
 		return 0;
 	}
 
-	dev_info(pmu->dev, "The %s enters power-on process.\n", pmd->genpd.name);
+	dev_info(pmu->dev, "[%s] enters power-on process.\n", pmd->genpd.name);
 
 	eic770x_pmu_set_domain_state(pmd, false); //true: power off.
 	ret = readl_poll_timeout_atomic(pmd->domain_info->reg_base + PD_DEBUG,
@@ -194,7 +198,9 @@ static int eic770x_pmu_domain_on(struct generic_pm_domain *genpd)
 		dev_info(pmu->dev, "%s power on tbu.\n", pmd->genpd.name);
 	}
 
-	dev_info(pmu->dev, "The %s ends power-on process.\n",  pmd->genpd.name);
+	dev_info(pmu->dev, "[%s] ends power-on process. %d opened domains.\n",
+						pmd->genpd.name,
+						atomic_read(&pmu->open_domains));
 	return 0;
 }
 
@@ -208,14 +214,17 @@ static int eic770x_pmu_domain_off(struct generic_pm_domain *genpd)
 	int ret;
 	u32 val;
 
+	atomic_dec(&pmu->open_domains);
+
 	eic770x_pmu_get_domain_state(pmd, &is_on);
 	if (is_on == false) {
-		dev_info(pmu->dev, "pm domain [%s] was already in  power off state.\n",
-			pmd->genpd.name);
+		dev_info(pmu->dev, "[%s] was already in power off state. %d opened domains.\n",
+							pmd->genpd.name,
+							atomic_read(&pmu->open_domains));
 		return 0;
 	}
 
-	dev_info(pmu->dev, "The %s enters power off process.\n", pmd->genpd.name);
+	dev_info(pmu->dev, "[%s] enters power off process.\n", pmd->genpd.name);
 
 	if (!of_property_read_u32(node, "tbus", &val)) {
 		win2030_tbu_force_power_by_dev_and_node(pmu->dev, node, false); // tbu power off
@@ -231,7 +240,9 @@ static int eic770x_pmu_domain_off(struct generic_pm_domain *genpd)
 			pmd->genpd.name);
 		return -ETIMEDOUT;
 	}
-	dev_info(pmu->dev, "The %s ends power off process.\n",  pmd->genpd.name);
+	dev_info(pmu->dev, "[%s] ends power off process. %d opened domains.\n",
+						pmd->genpd.name,
+						atomic_read(&pmu->open_domains));
 	return 0;
 }
 
@@ -387,6 +398,7 @@ static int eic770x_pmu_add_domain(struct device *dev, struct eic770x_pmu *pmu)
 
 		num_domains++;
 	}
+	atomic_set(&pmu->open_domains, 0);
 	pmu->num_domains = num_domains;
 	return 0;
 }

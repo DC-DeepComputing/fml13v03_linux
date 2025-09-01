@@ -116,19 +116,26 @@ static int __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 	tmp = DIV_ROUND_CLOSEST_ULL(duty, DWC_CLK_PERIOD_NS);
 	if (tmp < 1 || tmp > (1ULL << 32))
 		return -ERANGE;
-	if (pwm->args.polarity == PWM_POLARITY_INVERSED)
+	if (pwm->args.polarity== PWM_POLARITY_INVERSED)
+	{
 		high = tmp - 1;
+	}
 	else
+	{
 		low = tmp - 1;
-
-	tmp = DIV_ROUND_CLOSEST_ULL(state->period - duty, DWC_CLK_PERIOD_NS);
+	}
+	tmp = DIV_ROUND_CLOSEST_ULL(state->period - state->duty_cycle,
+				    DWC_CLK_PERIOD_NS);
 	if (tmp < 1 || tmp > (1ULL << 32))
 		return -ERANGE;
 	if (pwm->args.polarity == PWM_POLARITY_INVERSED)
+	{
 		low = tmp - 1;
+	}
 	else
+	{
 		high = tmp - 1;
-
+	}
 	/*
 	 * Specification says timer usage flow is to disable timer, then
 	 * program it followed by enable. It also says Load Count is loaded
@@ -277,6 +284,7 @@ static int dwc_pwm_probe(struct platform_device *pdev)
 		return PTR_ERR(dwc->gpio_fan);
 	}
 
+
 	ret = devm_pwmchip_add(dev, &dwc->chip);
 	if (ret)
 		return ret;
@@ -357,6 +365,13 @@ static int dwc_pwm_suspend(struct device *dev)
 		if (ret)
 			return ret;
 	}
+
+	dev_dbg(dev, "%s\n", __func__);
+	if (pm_runtime_status_suspended(dev)) {
+		ret = dwc_pwm_runtime_resume(dev);
+		if (ret)
+			return ret;
+	}
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
 		if (dwc->chip.pwms[i].state.enabled) {
 			dev_err(dev, "PWM %u in use by consumer (%s)\n",
@@ -417,7 +432,7 @@ static const struct dev_pm_ops dwc_pwm_pm_ops = {
 	SET_RUNTIME_PM_OPS(dwc_pwm_runtime_suspend, dwc_pwm_runtime_resume, NULL)
 	SET_SYSTEM_SLEEP_PM_OPS(dwc_pwm_suspend, dwc_pwm_resume)
 };
- 
+
 static const struct of_device_id dwc_pwm_id_table[] = {
 	{ .compatible = "eswin,pwm-eswin", },
 	{ /* sentinel */ }
