@@ -109,22 +109,6 @@
 					function = "spi1_func";
 				};
 			};
-			
-			pinctrl_dual_spi1_default: dual_spi1-default{
-				mux1 {
-					groups = "spi1_clk_group";
-					function = "spi1_clk_func";
-				};
-				mux2 {
-					groups = "spi1_d0_d1_group";
-					function = "spi1_d0_d1_func";
-				};
-				mux3 {
-					groups = "spi1_cs0_group";
-					function = "spi1_cs0_func";
-				};
-			};
-
             pinctrl_spi3_default: spi3-default{
 				mux {
 					groups = "spi3_group";
