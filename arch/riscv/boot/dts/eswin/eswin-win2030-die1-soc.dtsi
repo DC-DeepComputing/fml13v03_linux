@@ -2041,6 +2041,10 @@
 			eswin,hsp_sp_csr = <&d1_hsp_sp_csr 0x800 0x808 0x83c 0x840>;
 			resets = <&d1_reset HSPDMA_RST_CTRL SW_USB0_VAUX_RSTN>;
 			reset-names = "vaux";
+			pinctrl-names = "default", "sleep";
+			pinctrl-0 = <&pinctrl_die1_usb0_pwren_default>;
+			pinctrl-1 = <&pinctrl_die1_gpio42_default>;
+			power-gpios = <&d1_portb 10 GPIO_ACTIVE_LOW>;
 			ranges;
 			wakeup-source;
 			status = "disabled";
@@ -2081,6 +2085,10 @@
 			eswin,hsp_sp_csr = <&d1_hsp_sp_csr 0x900 0x908 0x93c 0x940>;
 			resets = <&d1_reset HSPDMA_RST_CTRL SW_USB1_VAUX_RSTN>;
 			reset-names = "vaux";
+			pinctrl-names = "default", "sleep";
+			pinctrl-0 = <&pinctrl_die1_usb1_pwren_default>;
+			pinctrl-1 = <&pinctrl_die1_gpio43_default>;
+			power-gpios = <&d1_portb 11 GPIO_ACTIVE_LOW>;
 			ranges;
 			wakeup-source;
 			status = "disabled";
