@@ -964,7 +964,7 @@ static void dw_hdmi_eswin_unbind(struct device *dev, struct device *master,
 
 	struct eswin_hdmi *hdmi = dev_get_drvdata(dev);
 	if (IS_ERR_OR_NULL(hdmi) || IS_ERR_OR_NULL(hdmi->hdmi)) {
-		pr_err(dev, "%s: hdmi not initialized, err=%ld\n",
+		dev_err(dev, "%s: hdmi not initialized, err=%ld\n",
 			__func__, PTR_ERR(hdmi));
 		return;
 	}
@@ -1018,7 +1018,7 @@ static int __maybe_unused dw_hdmi_eswin_suspend(struct device *dev)
 	struct eswin_hdmi *hdmi = dev_get_drvdata(dev);
 
 	if (IS_ERR_OR_NULL(hdmi) || IS_ERR_OR_NULL(hdmi->hdmi)) {
-		pr_err(dev, "%s: hdmi not initialized, err=%ld\n",
+		dev_err(dev, "%s: hdmi not initialized, err=%ld\n",
 			__func__, PTR_ERR(hdmi));
 		return -ENODEV;
 	}
@@ -1032,7 +1032,7 @@ static int __maybe_unused dw_hdmi_eswin_resume(struct device *dev)
 	struct eswin_hdmi *hdmi = dev_get_drvdata(dev);
 
 	if (IS_ERR_OR_NULL(hdmi) || IS_ERR_OR_NULL(hdmi->hdmi)) {
-		pr_err(dev, "%s: hdmi not initialized, err=%ld\n",
+		dev_err(dev, "%s: hdmi not initialized, err=%ld\n",
 			__func__, PTR_ERR(hdmi));
 		return -ENODEV;
 	}
@@ -1046,7 +1046,7 @@ static int __maybe_unused dw_hdmi_eswin_resume_early(struct device *dev)
 	struct eswin_hdmi *hdmi = dev_get_drvdata(dev);
 
 	if (IS_ERR_OR_NULL(hdmi) || IS_ERR_OR_NULL(hdmi->hdmi)) {
-		pr_err(dev, "%s: hdmi not initialized, err=%ld\n",
+		dev_err(dev, "%s: hdmi not initialized, err=%ld\n",
 			__func__, PTR_ERR(hdmi));
 		return -ENODEV;
 	}
