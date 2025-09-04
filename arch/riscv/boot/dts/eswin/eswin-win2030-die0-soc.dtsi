@@ -30,9 +30,10 @@
 #include <dt-bindings/power/eswin,eic770x-pmu.h>
 #include <dt-bindings/thermal/thermal.h>
 #include <dt-bindings/pwm/pwm.h>
+#include <dt-bindings/gpio/gpio.h>
 / {
-    compatible = "sifive,hifive-unmatched-a00", "sifive,fu740-c000","sifive,fu740";
-	thermal_zones:thermal-zones {
+	compatible = "eswin,eic7x";
+	thermal-zones {
 		thermal0 {
 			polling-delay-passive = <500>; /*ms*/
 			polling-delay = <1000>; /*ms*/
@@ -2031,6 +2032,10 @@
 			eswin,hsp_sp_csr = <&d0_hsp_sp_csr 0x800 0x808 0x83c 0x840>;
 			resets = <&d0_reset HSPDMA_RST_CTRL SW_USB0_VAUX_RSTN>;
 			reset-names = "vaux";
+			pinctrl-names = "default", "sleep";
+			pinctrl-0 = <&pinctrl_usb0_pwren_default>;
+			pinctrl-1 = <&pinctrl_gpio42_default>;
+			power-gpios = <&portb 10 GPIO_ACTIVE_LOW>;
 			ranges;
 			wakeup-source;
 			numa-node-id = <0>;
@@ -2071,6 +2076,10 @@
 			eswin,hsp_sp_csr = <&d0_hsp_sp_csr 0x900 0x908 0x93c 0x940>;
 			resets = <&d0_reset HSPDMA_RST_CTRL SW_USB1_VAUX_RSTN>;
 			reset-names = "vaux";
+			pinctrl-names = "default", "sleep";
+			pinctrl-0 = <&pinctrl_usb1_pwren_default>;
+			pinctrl-1 = <&pinctrl_gpio43_default>;
+			power-gpios = <&portb 11 GPIO_ACTIVE_LOW>;
 			ranges;
 			wakeup-source;
 			numa-node-id = <0>;
