@@ -69,8 +69,7 @@ static int send_frame_to_hw(struct win_engine *engine, u8 tiktok,
 		(program_node_t *)host_node->program_base_addr;
 	u8 param = tiktok | ((engine->perf_switch) ? 0x02 : 0x0);
 	msg_payload_t payload = { FRAME_READY, param };
-	memcpy(&pemission_node->frame_desc[tiktok], frame_desc,
-	       sizeof(hetero_ipc_frame_t));
+	memcpy(&pemission_node->frame_desc[tiktok], frame_desc, sizeof(hetero_ipc_frame_t));
 	memcpy(program_node->io_addr_list[tiktok].tensor_addr,
 	       io_tensor->tensor_addr, sizeof(io_tensor->tensor_addr));
 
@@ -146,6 +145,7 @@ void npu_frame_schedule(struct win_engine *engine)
 	unsigned long flags;
 	bool ret;
 
+	struct nvdla_device *ndev = (struct nvdla_device *)engine->nvdla_dev;
 	while (true) {
 		spin_lock_irqsave(&engine->executor_lock, flags);
 		if (atomic_read(&engine->is_sending) ||
@@ -153,7 +153,10 @@ void npu_frame_schedule(struct win_engine *engine)
 			spin_unlock_irqrestore(&engine->executor_lock, flags);
 			break;
 		}
-
+		if (ndev->is_suspend == true) {
+			spin_unlock_irqrestore(&engine->executor_lock, flags);
+			break;
+		}
 		pick_next_frame(engine, &f);
 		if (f == NULL) {
 			spin_unlock_irqrestore(&engine->executor_lock, flags);
