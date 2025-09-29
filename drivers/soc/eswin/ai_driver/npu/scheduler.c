@@ -305,6 +305,9 @@ void mbx_irq_frame_done(struct win_engine *priv, u32 tiktok, u32 stat)
 	}
 	spin_lock_irqsave(&engine->executor_lock, flags);
 	engine->tiktok_frame[f->tiktok] = NULL;
+	if (engine->tiktok_frame[(f->tiktok + 1) % NUM_TIKTOK] == NULL) {
+		wake_up_interruptible(&ndev->event_wq);
+	}
 	unset_current(engine, executor, f->tiktok);
 	spin_unlock_irqrestore(&engine->executor_lock, flags);
 	npu_frame_done_process(f);
