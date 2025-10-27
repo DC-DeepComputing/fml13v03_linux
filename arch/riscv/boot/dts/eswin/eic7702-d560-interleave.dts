@@ -102,9 +102,7 @@
 };
 
 &d0_usbdrd3_1 {
-	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_die0_gpio14_default>;
+	pinctrl-0 = <&pinctrl_die0_usb1_pwren_default>, <&pinctrl_die0_gpio14_default>;
 	hub-rst-gpios = <&porta 14 GPIO_ACTIVE_HIGH>;
 };
 
@@ -171,6 +169,29 @@
 	aon_eeprom@50 {
 		compatible = "atmel,24c02";
 		reg = <0x50>;
+	};
+};
+
+&fan_control {
+	status = "okay";
+};
+
+&d1_fan_control {
+	status = "okay";
+	fan-0 {
+		label = "d1_fan";
+		pwms = <&d1_pwm0 0 100000 0>;
+		status = "okay";
+	};
+	fan-1 {
+		label = "chassis_fan1";
+		pwms = <&d1_pwm0 1 100000 0>;
+		status = "okay";
+	};
+	fan-2 {
+		label = "chassis_fan2";
+		pwms = <&d1_pwm0 2 100000 0>;
+		status = "okay";
 	};
 };
 
@@ -279,6 +300,17 @@
 };
 &d1_timer1 {
 	status = "disabled";
+};
+
+&pcie {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_die1_gpio21_default>;
+	pci-socket-gpios = <&d1_porta 21 GPIO_ACTIVE_HIGH>;
+};
+
+&d1_pcie {
+	status = "okay";
 };
 
 &pinctrl {

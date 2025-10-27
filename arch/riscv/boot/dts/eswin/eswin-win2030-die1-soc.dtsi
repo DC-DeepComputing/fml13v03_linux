@@ -40,26 +40,26 @@
 			thermal-sensors = <&d1_pvt0>;
 
 			trips {
-				d1_threshold: trip-point0 {
+				d1_trip_threshold: trip-point0 {
 					temperature = <65000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
-				d1_target: trip-point1 {
+				d1_trip_target: trip-point1 {
 					temperature = <75000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
-				d1_crit: trip-point2 {
-					temperature     = <105000>;
-					hysteresis      = <0>;
-					type            = "critical";
+				d1_trip_crit: trip-point2 {
+					temperature = <105000>;
+					hysteresis = <0>;
+					type = "critical";
 				};
 			};
 
 			cooling-maps {
-				map0 {
-					trip = <&d1_target>;
+				d1_map_cpu: map0 {
+					trip = <&d1_trip_target>;
 					contribution = <1024>;
 					cooling-device =
 						<&cpu_4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
@@ -67,30 +67,36 @@
 						<&cpu_6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
 						<&cpu_7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map1 {
-					trip = <&d1_target>;
-					contribution = <1024>;
+				d1_map_npu: map1 {
+					trip = <&d1_trip_target>;
+					contribution = <4096>;
 					cooling-device = <&d1_npu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				/*
-				map2 {
-					trip = <&d1_target>;
+				d1_map_dsp: map2 {
+					trip = <&d1_trip_target>;
+					contribution = <2048>;
+					cooling-device = <&d1_dsp0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+									<&d1_dsp1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+									<&d1_dsp2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+									<&d1_dsp3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+				d1_map_gpu: map3 {
+					trip = <&d1_trip_target>;
 					contribution = <1024>;
 					cooling-device = <&d1_gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				*/
-				map4 {
-					trip = <&d1_target>;
+				d1_map_venc: map4 {
+					trip = <&d1_trip_target>;
 					contribution = <1024>;
 					cooling-device = <&venc1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map5 {
-					trip = <&d1_target>;
+				d1_map_vdec: map5 {
+					trip = <&d1_trip_target>;
 					contribution = <1024>;
 					cooling-device = <&vdec1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map6 {
-					trip = <&d1_target>;
+				d1_map_hae: map6 {
+					trip = <&d1_trip_target>;
 					contribution = <1024>;
 					cooling-device = <&d1_gc820 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
@@ -115,7 +121,7 @@
 		};
 
 		d1_uart1: serial@0x70910000 {
-			compatible = "snps,dw-apb-uart";
+			compatible = "eswin,dw-apb-uart";
 			reg = <0x0 0x70910000 0x0 0x10000>;
 			clock-frequency = <LSPCLK_FREQ>;
 			clocks = <&d1_clock EIC7700_CLK_LSP_UART1_PCLK>;
@@ -682,7 +688,8 @@
 
 		d1_ipc_scpu:ipc@1 {
 			compatible = "eswin,win2030-ipc", "simple-bus";
-			#size-cells = <2>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			dma-ranges = <0x0 0x80000000 0x0 0xc0000000 0x0 0x80000000>;
 			iommus = <&smmu1 WIN2030_SID_SCPU>, <&smmu1 WIN2030_SID_CRYPT>;
 			tbus = <WIN2030_TBUID_SCPU>;
@@ -758,9 +765,7 @@
 
 		d1_fan_control: fan_control@70b50000 {
 			compatible = "eswin-fan-control";
-			reg = <0x0 0x50b50000 0x0 0x10000>,
-					<0x0 0x71810668 0x0 0x10>,
-					<0x0 0x51810668 0x0 0x10>;
+			reg = <0x0 0x70b50000 0x0 0x10000>;
 			clocks = <&d1_clock EIC7700_CLK_LSP_FAN_PCLK>;
 			clock-names = "pclk";
 			resets = <&d1_reset FAN_RST_CTRL SW_FAN_RST_N>;
@@ -768,9 +773,11 @@
 			interrupt-parent = <&plic1>;
 			interrupt-names = "fanirq";
 			interrupts = <354>;
-			pulses-per-revolution = <1>;
+			pulses-per-revolution = <2>;
 			pwm-minimum-period = <1000>;
 			pwms = <&d1_pwm0 0 100000 0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_die1_fan_tach_default>;
 			status = "disabled";
 			label = "d1_fan_control";
 			numa-node-id = <1>;
@@ -1267,15 +1274,13 @@
 
 		d1_pwm0: pwm@0x70818000 {
 			compatible = "eswin,pwm-eswin";
+			#pwm-cells = <3>;
 			reg = <0x0 0x70818000 0x0 0x4000>;
-			clock-names = "pwm","pclk";
+			clock-names = "pclk";
 			clocks = <&d1_clock EIC7700_CLK_LSP_TIMER_PCLK>;
 			clock-frequency = <200000000>;
 			resets = <&d1_reset TIMER_RST_CTRL SW_TIMER_RST_N>;
-			reset-names = "pwmrst";
-			#pwm-cells = <3>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&d1_pinctrl_pwm0_default &d1_pinctrl_pwm1_default &d1_pinctrl_pwm2_default>;
+			reset-names = "rst";
 			status = "disabled";
 			numa-node-id = <1>;
 		};
@@ -2045,6 +2050,7 @@
 
 		d1_usbdrd3_0: usb0@70480000 {
 			compatible = "eswin,win2030-dwc3";
+			phy_reg = <0x0 0x704a0000 0x0 0x10000>;
 			#address-cells = <2>;
 			#size-cells = <2>;
 			clocks = <&d1_clock EIC7700_CLK_HSP_ACLK>,
@@ -2089,6 +2095,7 @@
 
 		d1_usbdrd3_1: usb1@70490000 {
 			compatible = "eswin,win2030-dwc3";
+			phy_reg = <0x0 0x704b0000 0x0 0x10000>;
 			#address-cells = <2>;
 			#size-cells = <2>;
 			clocks = <&d1_clock EIC7700_CLK_HSP_ACLK>,
@@ -2172,7 +2179,7 @@
 			tbus = <WIN2030_TBUID_DW>;
 			numa-node-id = <1>;
 			ranges;
-			status = "okay";
+			status = "disabled";
 
 			d1_vi_top_csr: vi_common_top_csr@71030000 {
 				compatible = "esw,vi-common-csr", "syscon";

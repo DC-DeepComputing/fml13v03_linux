@@ -89,6 +89,10 @@ MODULE_IMPORT_NS(DMA_BUF);
 #define NPU_750_MHZ 2
 #define NPU_520_MHZ 3
 #define NPU_TBL_MAX 4
+
+#define NPU_VOLTAGE_HIGHEST 1050000
+#define DEVFREQ_VOLT_DELAY 50
+
 static struct npu_freq_param npu_freq_tbl[2][NPU_TBL_MAX] = { 0 };
 int64_t dla_get_time_us(void)
 {
@@ -367,15 +371,7 @@ static int npu_set_freq_req(struct nvdla_device *nvdla_dev, struct npu_freq_para
 	llc_rate = clk_get_rate(nvdla_dev->mux_u_npu_llclk_3mux1_gfree);
 	npu_rate = clk_get_rate(nvdla_dev->mux_u_npu_core_3mux1_gfree);
 
-
-
-
-
 	ret = clk_set_parent(nvdla_dev->mux_u_npu_llclk_3mux1_gfree, tbl->llc_clk_parent);
-
-
-
-
 	if (ret) {
 		dev_err(&nvdla_dev->pdev->dev, "set npu llc clock parent err = %d.\n", ret);
 		return -EINVAL;
@@ -444,6 +440,9 @@ static int npu_devfreq_target(struct device *dev, unsigned long *freq, u32 flags
 	for (int i = 0; i < NPU_TBL_MAX; i++) {
 		if (npu_freq_tbl[nvdla_dev->numa_id][i].npu_rate == target_rate) {
 			tbl = &npu_freq_tbl[nvdla_dev->numa_id][i];
+			if (tbl->volt != target_volt && target_volt > 0) {
+				tbl->volt = target_volt;
+			}
 			break;
 		}
 	}
@@ -451,28 +450,43 @@ static int npu_devfreq_target(struct device *dev, unsigned long *freq, u32 flags
 	if (!tbl) {
 		dev_warn(dev, "can't find suitable freq table\n");
 		goto out;
-	} else {
-		dev_info(dev, "devfreq set npu clk rate:%ld, llc clk rate:%ld, npu volt:%d\n",
-			tbl->npu_rate, tbl->llc_rate, tbl->volt);
 	}
 
 	if (target_rate > nvdla_dev->rate) { // rise freq
-		ret = regulator_set_voltage(nvdla_dev->npu_regulator, tbl->volt, tbl->volt);
+		ret = regulator_set_voltage(nvdla_dev->npu_regulator, NPU_VOLTAGE_HIGHEST, NPU_VOLTAGE_HIGHEST);
 		if (ret) {
-			dev_err(dev, "Cannot set voltage %d uV\n", tbl->volt);
+			dev_err(dev, "Cannot set voltage %d uV\n", NPU_VOLTAGE_HIGHEST);
 			goto out;
 		}
-		mdelay(10);
+
+		mdelay(DEVFREQ_VOLT_DELAY);
 		ret = npu_set_freq_req(nvdla_dev, tbl);
 		if (ret) {
 			goto out;
 		}
-	} else { // lower freq
+		mdelay(1);
+		if (target_rate != NPU_CORE_CLK_HIGHEST) {
+			ret = regulator_set_voltage(nvdla_dev->npu_regulator, tbl->volt, tbl->volt);
+			if (ret) {
+				dev_err(dev, "Cannot set voltage %d uV\n", tbl->volt);
+				goto out;
+			}
+		}
+	} else if (target_rate < nvdla_dev->rate) { // lower freq
+		if (nvdla_dev->rate != NPU_CORE_CLK_HIGHEST) {
+			ret = regulator_set_voltage(nvdla_dev->npu_regulator, NPU_VOLTAGE_HIGHEST, NPU_VOLTAGE_HIGHEST);
+			if (ret) {
+				dev_err(dev, "Cannot set voltage %d uV\n", NPU_VOLTAGE_HIGHEST);
+				goto out;
+			}
+			mdelay(DEVFREQ_VOLT_DELAY);
+		}
+
 		ret = npu_set_freq_req(nvdla_dev, tbl);
 		if (ret) {
 			goto out;
 		}
-		mdelay(10);
+		mdelay(1);
 		ret = regulator_set_voltage(nvdla_dev->npu_regulator, tbl->volt, tbl->volt);
 		if (ret) {
 			dev_err(dev, "Cannot set voltage %d uV\n", tbl->volt);
@@ -482,6 +496,9 @@ static int npu_devfreq_target(struct device *dev, unsigned long *freq, u32 flags
 
 	nvdla_dev->rate = tbl->npu_rate;
 	nvdla_dev->volt = tbl->volt;
+
+	dev_info(dev, "devfreq set npu clk rate:%ld, llc clk rate:%ld, npu volt:%d\n",
+			tbl->npu_rate, tbl->llc_rate, tbl->volt);
 
 out:
 	mutex_unlock(&nvdla_dev->devfreq_lock);
@@ -651,8 +668,6 @@ static int32_t edla_probe(struct platform_device *pdev)
 		}
         mdelay(10);
 		err = npu_set_freq_req(nvdla_dev, &npu_freq_tbl[nvdla_dev->numa_id][NPU_1_5_GHZ]);
-		nvdla_dev->act_freq_level = 4;
-
     } else {
 		err = regulator_set_voltage(nvdla_dev->npu_regulator,
 						npu_freq_tbl[nvdla_dev->numa_id][NPU_1_0_GHZ].volt,
@@ -660,7 +675,6 @@ static int32_t edla_probe(struct platform_device *pdev)
 		dla_debug("name:%s, volt:%d, ret:%d\n", pdev->name, npu_freq_tbl[nvdla_dev->numa_id][NPU_1_0_GHZ].volt, err);
 		mdelay(10);
 		err = npu_set_freq_req(nvdla_dev, &npu_freq_tbl[nvdla_dev->numa_id][NPU_1_0_GHZ]);
-		nvdla_dev->act_freq_level = 3;
     }
 
 	if (err) {
@@ -896,7 +910,6 @@ int __maybe_unused npu_runtime_suspend(struct device *dev)
 	}
 
 	npu_tbu_power(dev, false);
-	ndev->act_freq_level = 0;
 
 	return npu_disable_clock(ndev);
 }
@@ -920,7 +933,6 @@ int __maybe_unused npu_runtime_resume(struct device *dev)
 
 	for (int i = 0; i < NPU_TBL_MAX; i++) {
 		if (npu_freq_tbl[ndev->numa_id][i].npu_rate == ndev->rate) {
-			ndev->act_freq_level = NPU_TBL_MAX - i;
 			break;
 		}
 	}

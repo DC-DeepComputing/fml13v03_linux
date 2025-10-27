@@ -36,7 +36,7 @@ void es_dsp_halt(struct es_dsp_hw *);
 void es_dsp_release(struct es_dsp_hw *);
 int es_dsp_sync(struct es_dsp *dsp);
 int es_dsp_load_op(struct es_dsp_hw *, void *op_ptr);
-
+int es_dsp_get_rate(struct es_dsp_hw *hw);
 int es_dsp_platform_init(void);
 int es_dsp_platform_uninit(void);
 int es_dsp_hw_init(struct es_dsp *dsp);
@@ -60,10 +60,13 @@ int es_dsp_clk_disable(struct es_dsp *dsp);
 int es_dsp_core_clk_enable(struct es_dsp *dsp);
 int es_dsp_core_clk_disable(struct es_dsp *dsp);
 
+int es_dsp_map_resource(struct es_dsp *dsp);
+int es_dsp_unmap_resource(struct es_dsp *dsp);
 int dsp_get_resource(struct platform_device *pdev, struct es_dsp *dsp);
 int dsp_put_resource(struct es_dsp *dsp);
 
 int es_dsp_get_subsys(struct platform_device *pdev, struct es_dsp *dsp);
+void es_dsp_put_subsys(struct es_dsp *dsp);
 void dsp_free_hw(struct es_dsp *dsp);
 int dsp_alloc_hw(struct platform_device *pdev, struct es_dsp *dsp);
 int dsp_enable_irq(struct es_dsp *dsp);

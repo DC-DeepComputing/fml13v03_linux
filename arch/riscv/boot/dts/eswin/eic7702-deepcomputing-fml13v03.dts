@@ -269,6 +269,9 @@
 	};
 };
 
+/delete-node/ &d0_map_cpu;
+/delete-node/ &d1_map_cpu;
+
 &d0_cpu_opp_table {
 	/delete-node/ opp-24000000;
 	/delete-node/ opp-100000000;

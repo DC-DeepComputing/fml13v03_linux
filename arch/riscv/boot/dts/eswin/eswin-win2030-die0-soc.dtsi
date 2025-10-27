@@ -34,33 +34,33 @@
 / {
 	compatible = "eswin,eic7x";
 	thermal-zones {
-		thermal0 {
+		d0_thermal: d0_thermal0 {
 			polling-delay-passive = <500>; /*ms*/
 			polling-delay = <1000>; /*ms*/
 			sustainable-power = <30000>; /*mW*/
 			thermal-sensors = <&pvt0>;
 
 			trips {
-				threshold: trip-point0 {
+				d0_trip_threshold: trip-point0 {
 					temperature = <65000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
-				target: trip-point1 {
+				d0_trip_target: trip-point1 {
 					temperature = <75000>;
 					hysteresis = <1000>;
 					type = "passive";
 				};
-				crit: trip-point2 {
-					temperature     = <105000>;
-					hysteresis      = <0>;
-					type            = "critical";
+				d0_trip_crit: trip-point2 {
+					temperature = <105000>;
+					hysteresis = <0>;
+					type = "critical";
 				};
 			};
 
 			cooling-maps {
-				map0 {
-					trip = <&target>;
+				d0_map_cpu: map0 {
+					trip = <&d0_trip_target>;
 					contribution = <1024>;
 					cooling-device =
 						<&cpu_0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
@@ -68,36 +68,36 @@
 						<&cpu_2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
 						<&cpu_3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map1 {
-					trip = <&target>;
+				d0_map_npu: map1 {
+					trip = <&d0_trip_target>;
 					contribution = <4096>;
 					cooling-device = <&d0_npu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map2 {
-					trip = <&target>;
-					contribution = <1024>;
+				d0_map_dsp: map2 {
+					trip = <&d0_trip_target>;
+					contribution = <2048>;
 					cooling-device = <&d0_dsp0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
 									<&d0_dsp1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
 									<&d0_dsp2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
 									<&d0_dsp3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map3 {
-					trip = <&target>;
+				d0_map_gpu: map3 {
+					trip = <&d0_trip_target>;
 					contribution = <1024>;
 					cooling-device = <&gpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map4 {
-					trip = <&target>;
+				d0_map_venc: map4 {
+					trip = <&d0_trip_target>;
 					contribution = <1024>;
 					cooling-device = <&venc0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map5 {
-					trip = <&target>;
+				d0_map_vdec: map5 {
+					trip = <&d0_trip_target>;
 					contribution = <1024>;
 					cooling-device = <&vdec0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
-				map6 {
-					trip = <&target>;
+				d0_map_hae: map6 {
+					trip = <&d0_trip_target>;
 					contribution = <1024>;
 					cooling-device = <&gc820 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
@@ -123,7 +123,7 @@
 		};
 
 		d0_uart1: serial@0x50910000 {
-			compatible = "snps,dw-apb-uart";
+			compatible = "eswin,dw-apb-uart";
 			reg = <0x0 0x50910000 0x0 0x10000>;
 			clock-frequency = <LSPCLK_FREQ>;
 			clocks = <&d0_clock EIC7700_CLK_LSP_UART1_PCLK>;
@@ -1317,7 +1317,8 @@
 
 		d0_ipc_scpu:ipc@0 {
 			compatible = "eswin,win2030-ipc", "simple-bus";
-			#size-cells = <2>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			dma-ranges = <0x0 0x80000000 0x0 0xc0000000 0x0 0x80000000>;
 			iommus = <&smmu0 WIN2030_SID_SCPU>, <&smmu0 WIN2030_SID_CRYPT>;
 			tbus = <WIN2030_TBUID_SCPU>;
@@ -1393,9 +1394,7 @@
 
 		fan_control: fan_control@50b50000 {
 			compatible = "eswin-fan-control";
-			reg = <0x0 0x50b50000 0x0 0x10000>,
-					<0x0 0x51810668 0x0 0x10>,
-					<0x0 0x71810668 0x0 0x10>;
+			reg = <0x0 0x50b50000 0x0 0x10000>;
 			clocks = <&d0_clock EIC7700_CLK_LSP_FAN_PCLK>;
 			clock-names = "pclk";
 			resets = <&d0_reset FAN_RST_CTRL SW_FAN_RST_N>;
@@ -2027,6 +2026,7 @@
 
 		d0_usbdrd3_0: usb0@50480000 {
 			compatible = "eswin,win2030-dwc3";
+			phy_reg = <0x0 0x504a0000 0x0 0x10000>;
 			#address-cells = <2>;
 			#size-cells = <2>;
 			clocks = <&d0_clock EIC7700_CLK_HSP_ACLK>,
@@ -2071,6 +2071,7 @@
 
 		d0_usbdrd3_1: usb1@50490000  {
 			compatible = "eswin,win2030-dwc3";
+			phy_reg = <0x0 0x504b0000 0x0 0x10000>;
 			#address-cells = <2>;
 			#size-cells = <2>;
 			clocks = <&d0_clock EIC7700_CLK_HSP_ACLK>,
@@ -2159,7 +2160,7 @@
 			tbus = <WIN2030_TBUID_DW>;
 			numa-node-id = <0>;
 			ranges;
-			status = "okay";
+			status = "disabled";
 
 			vi_top_csr: vi_common_top_csr@51030000 {
 				compatible ="syscon", "esw,vi-common-csr";

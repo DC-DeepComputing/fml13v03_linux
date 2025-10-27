@@ -30,7 +30,7 @@
 
 #include "eswin-win2030-die0-soc.dtsi"
 #include "eic7700-pinctrl.dtsi"
-#include "eic7700-evb-camera-imx327.dtsi"
+// #include "eic7700-evb-camera-imx327.dtsi"
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
@@ -41,8 +41,7 @@
 	#address-cells = <2>;
 	#size-cells = <2>;
 	model = "ESWIN EIC7700 EVB A2";
-	compatible = "sifive,hifive-unmatched-a00", "sifive,fu740-c000",
-		     "sifive,fu740", "eswin,eic7700";
+	compatible = "eswin,eic7x";
 
 	aliases {
 		serial0 = &d0_uart0;
@@ -525,6 +524,7 @@
 
 &d0_usbdrd3_0 {
 	status = "okay";
+	rt_equalization;
 };
 
 &d0_usbdrd_dwc3_0 {
@@ -535,6 +535,7 @@
 
 &d0_usbdrd3_1 {
 	status = "okay";
+	rt_equalization;
 };
 
 &d0_usbdrd_dwc3_1 {

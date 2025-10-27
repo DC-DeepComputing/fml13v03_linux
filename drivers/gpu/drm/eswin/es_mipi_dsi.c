@@ -152,6 +152,10 @@ struct mipi_dsi_priv {
 	struct reset_control *rst_dsi_phyrstn;
 	void *data;
 	struct gpio_desc *dsi_mux_gpio;
+	struct gpio_desc *dsi_fpc_fir_gpio;
+	struct gpio_desc *dsi_fpc_sec_gpio;
+	struct gpio_desc *dsi_led_gpio;
+	struct gpio_desc *dsi_power_gpio;
 };
 
 struct es_mipi_dsi {
@@ -222,11 +226,6 @@ MODULE_DEVICE_TABLE(of, es_mipi_dsi_dt_ids);
 static void dsi_write(struct mipi_dsi_priv *priv, u32 reg, u32 val)
 {
 	writel(val, priv->dphy_base + reg);
-}
-
-static u32 dsi_read(struct mipi_dsi_priv *priv, u32 reg)
-{
-	return readl(priv->dphy_base + reg);
 }
 
 static void es_dsi_encoder_disable(struct drm_encoder *encoder)
@@ -577,12 +576,36 @@ static int es_mipi_dsi_bind(struct device *dev, struct device *master,
 		ret = PTR_ERR(dsi_priv->dphy_base);
 		goto exit0;
 	}
-        // if dsi mux gpio is setting, mux to dsi
-        dsi_priv->dsi_mux_gpio = devm_gpiod_get(dev, "dsi-mux", GPIOD_OUT_LOW);
-        if (!IS_ERR(dsi_priv->dsi_mux_gpio)) {
-                gpiod_set_value(dsi_priv->dsi_mux_gpio, 1);
-                dev_info(dev, "dsi-csi-mux gpio set to dsi\n");
-        }
+	// if dsi mux gpio is setting, mux to dsi
+	dsi_priv->dsi_mux_gpio = devm_gpiod_get(dev, "dsi-mux", GPIOD_OUT_LOW);
+	if (!IS_ERR(dsi_priv->dsi_mux_gpio)) {
+		gpiod_set_value(dsi_priv->dsi_mux_gpio, 1);
+		dev_info(dev, "dsi-csi-mux gpio set to dsi\n");
+	}
+
+	dsi_priv->dsi_fpc_fir_gpio = devm_gpiod_get(dev, "dsi-fpc-fir", GPIOD_OUT_LOW);
+	if (!IS_ERR(dsi_priv->dsi_fpc_fir_gpio)) {
+		gpiod_set_value(dsi_priv->dsi_fpc_fir_gpio, 1);
+		dev_info(dev, "dsi-fpc-fir gpio set to dsi\n");
+	}
+
+	dsi_priv->dsi_fpc_sec_gpio = devm_gpiod_get(dev, "dsi-fpc-sec", GPIOD_OUT_LOW);
+	if (!IS_ERR(dsi_priv->dsi_fpc_sec_gpio)) {
+		gpiod_set_value(dsi_priv->dsi_fpc_sec_gpio, 1);
+		dev_info(dev, "dsi-fpc-sec gpio set to dsi\n");
+	}
+
+	dsi_priv->dsi_led_gpio = devm_gpiod_get(dev, "dsi-led", GPIOD_OUT_LOW);
+	if (!IS_ERR(dsi_priv->dsi_led_gpio)) {
+		gpiod_set_value(dsi_priv->dsi_led_gpio, 1);
+		dev_info(dev, "dsi-led gpio set to dsi\n");
+	}
+
+	dsi_priv->dsi_power_gpio = devm_gpiod_get(dev, "dsi-power", GPIOD_OUT_LOW);
+	if (!IS_ERR(dsi_priv->dsi_power_gpio)) {
+		gpiod_set_value(dsi_priv->dsi_power_gpio, 1);
+		dev_info(dev, "dsi-power gpio set to dsi\n");
+	}
 
 	dsi_priv->plat_data.base = dsi_priv->dphy_base;
 

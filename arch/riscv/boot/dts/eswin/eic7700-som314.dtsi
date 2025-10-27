@@ -40,7 +40,7 @@
 	#address-cells = <2>;
 	#size-cells = <2>;
 	model = "ESWIN 7700S314";
-	compatible = "eswin,eic7700";
+	compatible = "eswin,eic7x";
 
 	aliases {
 		serial0 = &d0_uart0;
@@ -117,10 +117,6 @@
 			no-map;
 		};
 	};
-};
-
-&d0_clock {
-	status = "okay";
 };
 
 &d0_reset {
@@ -463,6 +459,7 @@
 
 &d0_usbdrd3_0 {
 	status = "okay";
+	rt_equalization;
 };
 
 &d0_usbdrd_dwc3_0 {
@@ -473,6 +470,7 @@
 
 &d0_usbdrd3_1 {
 	status = "okay";
+	rt_equalization;
 };
 
 &d0_usbdrd_dwc3_1 {

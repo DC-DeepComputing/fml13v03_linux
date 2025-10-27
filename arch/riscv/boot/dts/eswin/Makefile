@@ -15,12 +15,17 @@ dtb-$(CONFIG_SOC_ESWIN) += eswin-win2030.dtb \
 							eic7700-sbc-a1-mipi.dtb\
 							eic7700-osm.dtb \
 							eic7702-d560.dtb \
+							eic7702-d560a.dtb \
 							eic7702-d560-interleave.dtb \
 							vpu7702-pcie.dtb \
 							vpu7702-evb.dtb \
 							eic7702-deepcomputing-fml13v03.dtb \
 							eic7702-deepcomputing-fml13v03-evt.dtb \
 							eic7700-ce1.dtb \
+							eic7700-ce1-mipi.dtb \
 							u2-evb.dtb \
-							eic7700-vela.dtb
+							m2-evb.dtb \
+							d560-ep-evb.dtb \
+							eic7700-vela.dtb \
+							eic7700-vela-mipi.dtb
 obj-$(CONFIG_BUILTIN_DTB) += $(addsuffix .o, $(dtb-y))

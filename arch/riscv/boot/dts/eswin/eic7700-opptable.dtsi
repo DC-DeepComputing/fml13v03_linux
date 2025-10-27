@@ -44,21 +44,6 @@
 		compatible = "operating-points-v2";
 		opp-shared;
 
-		opp-24000000 {
-			opp-hz = /bits/ 64 <CLK_FREQ_24M>;
-			opp-microvolt = <800000>;
-			clock-latency-ns = <70000>;
-		};
-		opp-100000000 {
-			opp-hz = /bits/ 64 <CLK_FREQ_100M>;
-			opp-microvolt = <800000>;
-			clock-latency-ns = <70000>;
-		};
-		opp-200000000 {
-			opp-hz = /bits/ 64 <CLK_FREQ_200M>;
-			opp-microvolt = <800000>;
-			clock-latency-ns = <70000>;
-		};
 		opp-400000000 {
 			opp-hz = /bits/ 64 <CLK_FREQ_400M>;
 			opp-microvolt = <800000>;
