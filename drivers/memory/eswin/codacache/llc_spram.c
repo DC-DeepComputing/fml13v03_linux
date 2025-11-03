@@ -1334,7 +1334,7 @@ free_spram:
 }
 #endif
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 static int llc_sideband_query(struct device *dev)
 {
 	int ret = 0;
@@ -1474,7 +1474,7 @@ static const struct dev_pm_ops llc_dev_pm_ops = {
 #define DEV_PM_OPS (&llc_dev_pm_ops)
 #else
 #define DEV_PM_OPS NULL
-#endif /* CONFIG_PM */
+#endif /* CONFIG_PM_SLEEP */
 
 static struct dma_buf *spram_heap_allocate(struct dma_heap *heap,
 					 unsigned long len,
@@ -1653,11 +1653,9 @@ static int llc_probe(struct platform_device *pdev)
 	spram->dev = &pdev->dev;
 
 	platform_set_drvdata(pdev, spram);
-	win2030_tbu_power(&pdev->dev, true);
 
 	ret = llc_resource_parse(pdev);
 	if (ret) {
-		win2030_tbu_power(&pdev->dev, false);
 		return ret;
 	}
 
@@ -1665,18 +1663,15 @@ static int llc_probe(struct platform_device *pdev)
 	/* Init llc controller */
 	ret = llc_clk_rst_init(pdev);
 	if (ret) {
-		win2030_tbu_power(&pdev->dev, false);
 		return ret;
 	}
 	ret = llc_spram_init(spram);
 	if (ret) {
-		win2030_tbu_power(&pdev->dev, false);
 		return ret;
 	}
 	#endif
 	if (devm_llc_ops_register(&pdev->dev, llc_flush_all)) {
 		dev_err(&pdev->dev, "register llc ops failed!!!\n");
-		win2030_tbu_power(&pdev->dev, false);
 		return -EFAULT;
 	}
 
@@ -1686,14 +1681,12 @@ static int llc_probe(struct platform_device *pdev)
 						dev_to_node(spram->dev), NULL);
 	if (IS_ERR(spram->pool)) {
 		dev_err(spram->dev, "devm_gen_pool_create() failed!!!\n");
-		win2030_tbu_power(&pdev->dev, false);
 		return PTR_ERR(spram->pool);
 	}
 	ret = gen_pool_add_virt(spram->pool, (unsigned long)spram->virt_base,
 				spram->phys_addr, npu_spram_size, dev_to_node(spram->dev));
 	if (ret < 0) {
 		dev_err(spram->dev, "gen_pool_add_virt failed with %d\n", ret);
-		win2030_tbu_power(&pdev->dev, false);
 		return ret;
 	}
 
@@ -1708,9 +1701,10 @@ static int llc_probe(struct platform_device *pdev)
 	ret = __add_spram_heap(spram, NULL);
 	if (ret) {
 		dev_err(spram->dev, "failed to add spram heap\n");
-		win2030_tbu_power(&pdev->dev, false);
 		return ret;
 	}
+
+	win2030_tbu_power(&pdev->dev, true);
 
 	llc_user_init(spram);
 

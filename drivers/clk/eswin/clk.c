@@ -404,6 +404,16 @@ static int clk_pll_set_rate(struct clk_hw *hw, unsigned long rate,
 			clk_disable_unprepare(clk_cpu_lp_pll);
 			return -EPERM;
 		}
+
+		ret = clk_set_parent(clk_cpu_aclk_mux, clk_cpu_mux);
+		if (ret) {
+			pr_err("%s %d, failed to switch %s to %s, ret %d\n",
+					__func__, __LINE__, clk_cpu_aclk_mux_name,
+					clk_cpu_mux_name, ret);
+			clk_disable_unprepare(clk_cpu_lp_pll);
+			goto switch_back;
+		}
+
 		mutex_lock(&lock);
 		if (clk->numa_id >= 0) {
 			g_cpu_info.cpu_freqhz[clk->numa_id] = rate;

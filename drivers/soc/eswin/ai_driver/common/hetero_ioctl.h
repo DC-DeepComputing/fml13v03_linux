@@ -37,7 +37,8 @@ enum {
     mem_flag_swap,
     mem_flag_input,
     mem_flag_output,
-    mem_flag_remote
+    mem_flag_remote,
+    mem_flag_distribute
 };
 
 /**
@@ -114,6 +115,11 @@ enum WIN_IOCTL_CMD {
     CMD_DESTROY_STREAM,
     CMD_GET_CMA_INFO,
     WIN_IOCTL_CMD_NUM,
+};
+
+enum NPU_HETERO_CMD {
+    ASYNC_SUBMIT_TASK = 0,
+    SYNC_EXECUTE_TASK,
 };
 
 #define TASK_RESULT_ARRAY_NUM 16

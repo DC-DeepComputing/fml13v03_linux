@@ -150,7 +150,7 @@
 #define INT_MIN_SUM_OF_IMAGE_SIZE         (4096 * 2160 * 1 * MAX_CMDBUF_INT_NUMBER)
 #define MAX_PROCESS_CORE_NUMBER           (4 * 8)
 #define PROCESS_MAX_VIDO_SIZE             (4096 * 2160 * MAX_SAME_MODULE_TYPE_CORE_NUMBER * MAX_PROCESS_CORE_NUMBER)
-#define PROCESS_MAX_JPEG_SIZE             (2147483648U) //32K*32K*2
+#define PROCESS_MAX_JPEG_SIZE             (32768ULL*32768ULL*(2+1)) //32K*32K*(2(a pic per core)+1(extra a pic for a proc))
 #define PROCESS_MAX_SUM_OF_IMAGE_SIZE                         \
                     (PROCESS_MAX_VIDO_SIZE > PROCESS_MAX_JPEG_SIZE ? PROCESS_MAX_VIDO_SIZE : PROCESS_MAX_JPEG_SIZE)
 
@@ -204,7 +204,7 @@ struct noncache_mem {
 
 struct process_manager_obj {
 	struct file *filp;
-	u32 total_exe_time;
+	u64 total_exe_time;
 	spinlock_t spinlock;
 	wait_queue_head_t wait_queue;
 };
@@ -212,7 +212,7 @@ struct process_manager_obj {
 struct cmdbuf_obj {
 	u32 module_type; //current CMDBUF type: input vc8000e=0,IM=1,vc8000d=2,jpege=3, jpegd=4
 	u32 priority; //current CMDBUFpriority: normal=0, high=1
-	u32 executing_time; //current CMDBUFexecuting_time=encoded_image_size*(rdoLevel+1)*(rdoq+1);
+	u64 executing_time; //current CMDBUFexecuting_time=encoded_image_size*(rdoLevel+1)*(rdoq+1);
 	u32 cmdbuf_size; //current CMDBUF size
 	u32 *cmdbuf_virtualAddress; //current CMDBUF start virtual address.
 	size_t cmdbuf_busAddress; //current CMDBUF start physical address.
@@ -248,7 +248,7 @@ struct hantrovcmd_dev {
 	u32 duration_without_int; //number of cmdbufs without interrupt.
 
 	volatile u8 working_state;
-	u32 total_exe_time;
+	u64 total_exe_time;
 	u16 status_cmdbuf_id; //used for analyse configuration in cwl.
 	u32 hw_version_id; /*megvii 0x43421001, later 0x43421102*/
 	u32 *vcmd_reg_mem_virtualAddress; //start virtual address of vcmd registers memory of  CMDBUF.
@@ -948,9 +948,9 @@ static bi_list_node *remove_cmdbuf_node_from_list(bi_list *list,
 }
 
 //calculate executing_time of each vcmd
-static u32 calculate_executing_time_after_node(bi_list_node *exe_cmdbuf_node)
+static u64 calculate_executing_time_after_node(bi_list_node *exe_cmdbuf_node)
 {
-	u32 time_run_all = 0;
+	u64 time_run_all = 0;
 	struct cmdbuf_obj *cmdbuf_obj_temp = NULL;
 
 	while (1) {
@@ -962,9 +962,9 @@ static u32 calculate_executing_time_after_node(bi_list_node *exe_cmdbuf_node)
 	}
 	return time_run_all;
 }
-static u32 calculate_executing_time_after_node_high_priority(bi_list_node *exe_cmdbuf_node)
+static u64 calculate_executing_time_after_node_high_priority(bi_list_node *exe_cmdbuf_node)
 {
-	u32 time_run_all = 0;
+	u64 time_run_all = 0;
 	struct cmdbuf_obj *cmdbuf_obj_temp = NULL;
 
 	if (!exe_cmdbuf_node)
@@ -1066,7 +1066,7 @@ static int select_vcmd(bi_list_node *new_cmdbuf_node, u16 numa_id)
 	bi_list *list = NULL;
 	struct hantrovcmd_dev *dev = NULL;
 	struct hantrovcmd_dev *smallest_dev = NULL;
-	u32 executing_time = 0xffff;
+	u64 executing_time = 0xffffffffffffffff;
 	int counter = 0;
 	unsigned long flags = 0;
 	u32 hw_rdy_cmdbuf_num = 0;
@@ -1259,7 +1259,7 @@ static int select_vcmd(bi_list_node *new_cmdbuf_node, u16 numa_id)
 		}
 		//find the device with the least total_exe_time.
 		counter = 0;
-		executing_time = 0xffffffff;
+		executing_time = 0xffffffffffffffff;
 		while (1) {
 			dev = vcmd_manager[cmdbuf_obj->module_type][vcmd_position[cmdbuf_obj->module_type]];
 			if (dev->total_exe_time <= executing_time) {
@@ -1344,7 +1344,7 @@ static int select_vcmd(bi_list_node *new_cmdbuf_node, u16 numa_id)
 		}
 		//find the smallest device.
 		counter = 0;
-		executing_time = 0xffffffff;
+		executing_time = 0xffffffffffffffff;
 		while (1) {
 			dev = vcmd_manager[cmdbuf_obj->module_type][vcmd_position[cmdbuf_obj->module_type]];
 			if (dev->total_exe_time <= executing_time) {
@@ -1816,7 +1816,7 @@ static void hantrovcmd_trigger_irq(struct timer_list *timer)
 }
 #endif
 
-static unsigned int wait_cmdbuf_ready(struct file *filp, u16 cmdbuf_id,
+static long wait_cmdbuf_ready(struct file *filp, u16 cmdbuf_id,
 				      u32 *irq_status_ret)
 {
 	struct cmdbuf_obj *cmdbuf_obj = NULL;
@@ -2033,7 +2033,6 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 		break;
 	}
 	case HANTRO_IOCH_RESERVE_CMDBUF: {
-		int ret;
 		struct exchange_parameter input_para;
 
 		retval = copy_from_user(&input_para, (struct exchange_parameter __user *)arg,
@@ -2043,8 +2042,8 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 			return -EFAULT;
 		}
 
-		ret = reserve_cmdbuf(filp, &input_para);
-		if (ret == 0) {
+		retval = reserve_cmdbuf(filp, &input_para);
+		if (retval == 0) {
 			retval = copy_to_user((struct exchange_parameter __user *)arg,
 					&input_para,
 					sizeof(struct exchange_parameter));
@@ -2054,12 +2053,11 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 			}
 		}
 		LOG_DBG(" VCMD Reserve CMDBUF %d\n", input_para.cmdbuf_id);
-		return ret;
+		return retval;
 	}
 
 	case HANTRO_IOCH_LINK_RUN_CMDBUF: {
 		struct exchange_parameter input_para;
-		long retVal;
 
 		retval = copy_from_user(&input_para, (struct exchange_parameter __user *)arg,
 			       sizeof(struct exchange_parameter));
@@ -2070,7 +2068,7 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 
 
 		LOG_DBG("VCMD link and run cmdbuf\n");
-		retVal = link_and_run_cmdbuf(filp, &input_para);
+		retval = link_and_run_cmdbuf(filp, &input_para);
 		retval = copy_to_user((struct exchange_parameter __user *)arg, &input_para,
 			     sizeof(struct exchange_parameter));
 		if (retval) {
@@ -2078,13 +2076,12 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 			return -EFAULT;
 		}
 
-		return retVal;
-		break;
+		return retval;
+		// break;
 	}
 
 	case HANTRO_IOCH_WAIT_CMDBUF: {
 		u16 cmdbuf_id;
-		unsigned int tmp;
 		u32 irq_status_ret = 0;
 
 		__get_user(cmdbuf_id, (u16 __user *)arg);
@@ -2093,17 +2090,17 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 		LOG_DBG("VCMD wait for CMDBUF finishing.\n");
 
 		//TODO
-		tmp = wait_cmdbuf_ready(filp, cmdbuf_id, &irq_status_ret);
+		retval = wait_cmdbuf_ready(filp, cmdbuf_id, &irq_status_ret);
 		LOG_TRACE("wait cmdbuf_id for encoder [pid=%d][%u], status:%x\n", current->pid, cmdbuf_id, irq_status_ret);
 		cmdbuf_id = (u16)irq_status_ret;
-		if (tmp == 0) {
+		if (retval == 0) {
 			__put_user(cmdbuf_id, (u16 __user *)arg);
-			return tmp; //return core_id
+			return retval; //return core_id
 		} else {
-			return tmp;
+			return retval;
 		}
 
-		break;
+		// break;
 	}
 	case HANTRO_IOCH_RELEASE_CMDBUF: {
 		u16 cmdbuf_id;
@@ -2115,7 +2112,7 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 
 		release_cmdbuf(filp, cmdbuf_id);
 		return 0;
-		break;
+		// break;
 	}
 	case HANTRO_IOCH_POLLING_CMDBUF: {
 		u16 core_id;
@@ -2126,7 +2123,7 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 			return -1;
 		hantrovcmd_isr(core_id, &hantrovcmd_data[core_id]);
 		return 0;
-		break;
+		// break;
 	}
 #ifdef SUPPORT_DMA_HEAP
 	case HANTRO_IOCH_DMA_HEAP_GET_IOVA: {
@@ -2177,7 +2174,6 @@ static long hantrovcmd_ioctl(struct file *filp, unsigned int cmd,
 		return 0;
 	}
 	case HANTRO_IOCH_DMA_HEAP_PUT_IOVA: {
-		struct dmabuf_cfg dbcfg;
 		struct heap_mem *hmem, *hmem_d1;
 		unsigned int dmabuf_fd;
 		struct filp_priv *fp_priv = (struct filp_priv *)filp->private_data;

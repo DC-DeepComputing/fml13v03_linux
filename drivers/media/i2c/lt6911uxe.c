@@ -1,735 +1,49 @@
 // SPDX-License-Identifier: GPL-2.0
-// Copyright (c) 2023 Intel Corporation.
+/*
+ * LT6911UXE Sensor Driver for EIC7700 SoC
+ *
+ * Copyright 2025, Beijing ESWIN Computing Technology Co., Ltd.. All rights reserved.
+ *
+ * Authors: Junfa Sun <sunjunfa@eswincomputing.com>
+ *          Yulin Lu <luyulin@eswincomputing.com>
+ */
 
-#include <asm/unaligned.h>
-#include <linux/acpi.h>
+#define DEBUG
+#include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/gpio/consumer.h>
+#include <linux/hdmi.h>
 #include <linux/i2c.h>
-#include <linux/module.h>
-#include <linux/pm_runtime.h>
-#include <linux/gpio.h>
 #include <linux/interrupt.h>
-#include <linux/of_device.h>
-#include <linux/of_gpio.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/of_graph.h>
+#include <linux/es-camera-module.h>
+#include <linux/slab.h>
+#include <linux/timer.h>
 #include <linux/v4l2-dv-timings.h>
-
-#include <media/v4l2-dv-timings.h>
-#include <media/v4l2-ctrls.h>
-#include <media/v4l2-event.h>
+#include <linux/version.h>
+#include <linux/videodev2.h>
+#include <linux/workqueue.h>
+#include <linux/compat.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
+#include <media/v4l2-dv-timings.h>
+#include <media/v4l2-event.h>
 #include <media/v4l2-fwnode.h>
-#include <linux/types.h>
 
-#include <linux/version.h>
-// #include <media/lt6911uxe.h>
-#include "lt6911uxe.h"
+#include "lt6911uxe_upgrade.h"
 
-/* v4l2 debug level */
+#define DRIVER_VERSION			KERNEL_VERSION(0, 0x01, 0x05)
+
 static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "debug level (0-3)");
 
-#define FSERIAL_CLK_4_LANE		240000000ULL
-#define FSERIAL_CLK_2_LANE		144000000ULL
+#define I2C_MAX_XFER_SIZE	128
+#define POLL_INTERVAL_MS	1000
 
-#define PIX_CLK_4_LANE			60000000ULL
-#define PIX_CLK_2_LANE			18000000ULL
-
-// LT6911UXE Register Setting
-
-#define LT6911UXE_REG_VALUE_08BIT		1
-#define LT6911UXE_REG_VALUE_16BIT		2
-#define LT6911UXE_CHIP_ID			0x2102
-
-#define LT6911UXE_CID_CSI_PORT	(V4L2_CID_USER_BASE | 0x1001)
-#define LT6911UXE_CID_I2C_BUS	(V4L2_CID_USER_BASE | 0x1002)
-#define LT6911UXE_CID_I2C_ID	(V4L2_CID_USER_BASE | 0x1003)
-#define LT6911UXE_CID_I2C_SLAVE_ADDRESS	(V4L2_CID_USER_BASE | 0x1004)
-#define LT6911UXE_CID_FPS	(V4L2_CID_USER_BASE | 0x1005)
-#define LT6911UXE_CID_FRAME_INTERVAL	(V4L2_CID_USER_BASE | 0x1006)
-#define LT6911UXE_CID_AUDIO_SAMPLING_RATE	(V4L2_CID_USER_BASE | 0x1007)
-#define LT6911UXE_CID_AUDIO_PRESENT	(V4L2_CID_USER_BASE | 0x1008)
-
-#define REG_CHIP_ID_H	0xE100
-#define REG_CHIP_ID_L	0xE101
-
-/* Control */
-#define REG_BANK	0xFF
-
-#define REG_ENABLE_I2C	0xE0EE
-//#define REG_DISABLE_WD	0x8010
-
-/* Resolution registers */
-#define REG_H_TOTAL_H	0xE088	/* horizontal half total pixel */
-#define REG_H_TOTAL_L	0xE089	/* horizontal half total pixel */
-
-#define REG_H_ACTIVE_H	0xE08C	/* horizontal half active pixel */
-#define REG_H_ACTIVE_L	0xE08D	/* horizontal half active pixel */
-
-//#define REG_H_FP_0P5	0x8678	/* horizontal half front porch pixel */
-//#define REG_H_BP_0P5	0x8676	/* horizontal half back porch pixel */
-//#define REG_H_SW_0P5	0x8672	/* hsync half length pixel  */
-
-#define REG_V_TOTAL_H	0xE08A	/* vertical total lines */
-#define REG_V_TOTAL_L	0xE08B	/* vertical total lines */
-
-#define REG_V_ACTIVE_H	0xE08E	/* vertical active lines */
-#define REG_V_ACTIVE_L	0xE08F	/* vertical active lines */
-
-//#define REG_V_BP	0x8674	/* vertical back porch lines */
-//#define REG_V_FP	0x8675	/* vertical front porch lines */
-//#define REG_V_SW	0x8671	/* vsync length lines */
-//#define REG_SYNC_POL	0x8670	/* hsync/vsync polarity flags */
-//#define REG_BKB0_A2_REG	0xB0A2
-
-#define REG_FM1_FREQ_IN2	0xE092
-#define REG_FM1_FREQ_IN1	0xE093
-#define REG_FM1_FREQ_IN0	0xE094
-
-//#define REG_AD_HALF_PCLK	0x8540
-
-//#define REG_TMDS_CLK_IN2	0x8750
-//#define REG_TMDS_CLK_IN1	0x8751
-//#define REG_TMDS_CLK_IN0	0x8752
-#define REG_PIX_CLK_IN2		0xE085
-#define REG_PIX_CLK_IN1		0xE086
-#define REG_PIX_CLK_IN0		0xE087
-
-/* MIPI-TX */
-#define REG_MIPI_TX_CTRL	0xE0B0
-#define REG_MIPI_LANES		0xE095
-#define REG_MIPI_FORMAT		0xE096
-//#define REG_MIPI_CLK_MODE	0xE096
-
-#define RGB_6_BIT               0x00
-#define RGB_8_BIT               0x01
-#define RGB_10_BIT              0x02
-#define YUV444_8_BIT            0x03
-#define YUV444_10_BIT           0x04
-#define YUV422_8_BIT            0x05
-#define YUV422_10_BIT           0x06
-#define YUV422_12_BIT           0x07
-#define YUV420_8_BIT            0x08
-#define YUV420_10_BIT           0x09
-
-/* Audio sample rate */
-#define REG_INT_AUDIO		0x86A5
-//#define AUDIO_DISCONNECT	0x88
-#define AUDIO_SR_HIGH		0x55
-#define AUDIO_SR_LOW		0xAA
-//#define REG_AUDIO_SR		0xB0AB
-#define REG_AUDIO_FS_H          0xE090
-#define REG_AUDIO_FS_L          0xE091
-
-/* Interrupts */
-#define REG_INT_HDMI		0xE084
-#define REG_INT_RESPOND		0x86A6
-#define INT_HDMI_DISCONNECT     0x00
-#define INT_HDMI_STABLE         0x01
-
-//#define REG_INT_AUDIO	0x86A5
-#define INT_AUDIO_STABLE        0x02
-#define INT_AUDIO_DISCONNECT	0x03
-//#define INT_AUDIO_SR_HIGH	0x55
-//#define INT_AUDIO_SR_LOW	0xAA
-
-/* FPS registers */
-#define MASK_FMI_FREQ2		0x0F
-#define MASK_VSYNC_POL		(1 << 1)
-#define MASK_HSYNC_POL		(1 << 0)
-
-/* Frame ID registers */
-#define REG_FRAME_ID		0xD40E
-#define REG_FRAME_STATUS	0xD414
-
-#define LT6911UXE_IRQ_MODE
-#define MAX_MIPI_PORT_USE 3
-
-static const struct v4l2_dv_timings_cap lt6911uxe_timings_cap_4kp30 = {
-	.type = V4L2_DV_BT_656_1120,
-	/* keep this initialization for compatibility with GCC < 4.4.6 */
-	.reserved = { 0 },
-	/* Pixel clock from REF_01 p. 20. Min/max height/width are unknown */
-	V4L2_INIT_BT_TIMINGS(
-		160, 3840,				/* min/max width */
-		120, 2160,				/* min/max height */
-		25000000, 297000000,			/* min/max pixelclock */
-		V4L2_DV_BT_STD_CEA861 | V4L2_DV_BT_STD_DMT |
-		V4L2_DV_BT_STD_CVT,
-		V4L2_DV_BT_CAP_PROGRESSIVE | V4L2_DV_BT_CAP_CUSTOM |
-		V4L2_DV_BT_CAP_REDUCED_BLANKING)
-};
-
-struct lt6911uxe_mode {
-	/* Frame width in pixels */
-	u32 width;
-
-	/* Frame height in pixels */
-	u32 height;
-
-	/* Horizontal timining size */
-	u32 hts;
-
-	/* Default vertical timining size */
-	u32 vts_def;
-
-	/* Min vertical timining size */
-	u32 vts_min;
-
-	/* Link frequency needed for this resolution */
-	u32 link_freq_index;
-
-	/* MEDIA_BUS_FMT */
-	u32 code;
-
-	/* REG_MIPI_LANES */
-	s32 lanes;
-
-	/* MODE_FPS*/
-	u32 fps;
-
-	/* Bit per pixel */
-	u32 bpp;
-
-	/* Pixel rate*/
-	s64 pixel_clk;
-
-	/* Byte rate*/
-	u32 byte_clk;
-
-	/* Audio sample rate*/
-	u32 audio_sample_rate;
-};
-
-struct lt6911uxe_state {
-	struct v4l2_subdev sd;
-	struct v4l2_ctrl_handler ctrl_handler;
-	struct v4l2_ctrl *audio_sampling_rate_ctrl;
-	struct v4l2_ctrl *audio_present_ctrl;
-	struct v4l2_ctrl *csi_port;
-	struct v4l2_ctrl *i2c_bus;
-	struct v4l2_ctrl *i2c_id;
-	struct v4l2_ctrl *i2c_slave_address;
-	struct v4l2_ctrl *fps;
-	struct v4l2_ctrl *frame_interval;
-	struct v4l2_ctrl *pixel_rate;
-	struct v4l2_ctrl *link_freq;
-	struct v4l2_ctrl *vblank;
-	struct v4l2_ctrl *exposure;
-	struct v4l2_ctrl *analogue_gain;
-	struct v4l2_ctrl *digital_gain;
-	struct v4l2_ctrl *strobe_source;
-	struct v4l2_ctrl *strobe;
-	struct v4l2_ctrl *strobe_stop;
-	struct v4l2_ctrl *timeout;
-	struct v4l2_ctrl *hblank;
-
-	struct v4l2_dv_timings timings;
-	struct v4l2_dv_timings detected_timings;
-	struct v4l2_fwnode_endpoint bus_cfg;
-
-	struct i2c_client *i2c_client;
-
-	struct media_pad pad;
-	struct mutex mutex;
-	struct lt6911uxe_platform_data  *platform_data;
-
-	/* Current mode */
-	struct lt6911uxe_mode *cur_mode;
-
-	bool streaming;
-
-	u8 bank_i2c;
-	bool enable_i2c;
-
-	u32 mbus_fmt_code;			/* current media bus format */
-
-	u32 thread_run;
-	struct task_struct *poll_task;
-	bool auxiliary_port;
-
-	s64 sub_stream;
-};
-
-static const struct v4l2_event lt6911uxe_ev_source_change = {
-	.type = V4L2_EVENT_SOURCE_CHANGE,
-	.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
-};
-
-static const struct v4l2_event lt6911uxe_ev_stream_end = {
-	.type = V4L2_EVENT_EOS,
-};
-
-static inline struct lt6911uxe_state *to_state(struct v4l2_subdev *sd)
-{
-	return container_of(sd, struct lt6911uxe_state, sd);
-}
-
-static void lt6911uxe_reg_bank(struct v4l2_subdev *sd, u8 bank)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-	struct i2c_client *client = lt6911uxe->i2c_client;
-	int ret;
-	struct i2c_msg msg;
-	u8 data[2];
-	u8 address;
-
-	if (lt6911uxe->bank_i2c == bank)
-		return;
-	dev_dbg(&client->dev, "i2c: change register bank to 0x%02X\n",
-		bank);
-
-	address = 0xFF;
-	msg.addr = client->addr;
-	msg.buf = data;
-	msg.len = 2;
-	msg.flags = 0;
-
-	data[0] = address;
-	data[1] = bank;
-
-	ret = i2c_transfer(client->adapter, &msg, 1);
-	if (ret != 1) {
-		dev_info(&client->dev, "%s: switch to bank 0x%x from 0x%x failed\n",
-			__func__, bank, client->addr);
-		return;
-	}
-	lt6911uxe->bank_i2c = bank;
-}
-
-static void lt6911uxe_i2c_wr8(struct v4l2_subdev *sd, u16 reg, u8 val)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-	struct i2c_client *client = lt6911uxe->i2c_client;
-	int ret;
-	struct i2c_msg msg;
-	u8 data[2];
-	u8 address;
-
-	/* write register bank offset */
-	u8 bank = (reg >> 8) & 0xFF;
-
-	lt6911uxe_reg_bank(sd, bank);
-	address = reg & 0xFF;
-	msg.addr = client->addr;
-	msg.buf = data;
-	msg.len = 2;
-	msg.flags = 0;
-
-	data[0] = address;
-	data[1] = val;
-
-	ret = i2c_transfer(client->adapter, &msg, 1);
-
-	if (ret != 1) {
-		dev_info(&client->dev, "%s: write register 0x%x from 0x%x failed\n",
-			__func__, reg, client->addr);
-	}
-	dev_dbg(&client->dev, "i2c: write register: 0x%04X = 0x%02X\n",
-		reg, val);
-}
-
-static void lt6911uxe_i2c_rd(struct v4l2_subdev *sd, u16 reg, u8 *values, u32 n)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-	struct i2c_client *client = lt6911uxe->i2c_client;
-	int ret;
-	u8 reg_addr[1] = { (u8)(reg & 0xff) };
-	u8 bank_addr   = (u8)((reg >> 8) & 0xFF);
-
-	struct i2c_msg msgs[] = {
-		{
-			.addr = client->addr,
-			.flags = 0,		/* write */
-			.len = 1,
-			.buf = reg_addr,
-		},
-		{
-			.addr = client->addr,
-			.flags = I2C_M_RD,	/* read n bytes */
-			.len = n,
-			.buf = values,
-		},
-	};
-
-	/* write register bank offset */
-	lt6911uxe_reg_bank(sd, bank_addr);
-
-	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
-	if (ret != ARRAY_SIZE(msgs)) {
-		dev_info(&client->dev, "%s: read register 0x%04X from 0x%x failed\n",
-			__func__, reg, client->addr);
-	}
-}
-
-static u8 lt6911uxe_i2c_rd8(struct v4l2_subdev *sd, u16 reg)
-{
-	u8 val = 0;
-
-	lt6911uxe_i2c_rd(sd, reg, &val, 1);
-
-	dev_dbg(sd->dev, "i2c: read 0x%04X = 0x%02X\n", reg, val);
-	return val;
-}
-
-static void lt6911uxe_ext_control(
-	struct lt6911uxe_state *lt6911uxe,
-	bool enable)
-{
-	if (!lt6911uxe)
-		return;
-
-	if (lt6911uxe->enable_i2c == enable)
-		return;
-
-	lt6911uxe->enable_i2c = enable;
-	if (enable) {
-		lt6911uxe_i2c_wr8(&lt6911uxe->sd, REG_ENABLE_I2C, 0x01);
-//		lt6911uxe_i2c_wr8(&lt6911uxe->sd, REG_DISABLE_WD, 0x00);
-	} else
-		lt6911uxe_i2c_wr8(&lt6911uxe->sd, REG_ENABLE_I2C, 0x00);
-}
-
-static int lt6911uxe_csi_enable(struct v4l2_subdev *sd, bool enable)
-{
-	if (enable)
-		lt6911uxe_i2c_wr8(sd, REG_MIPI_TX_CTRL, 0x01);
-	else
-		lt6911uxe_i2c_wr8(sd, REG_MIPI_TX_CTRL, 0x00);
-	return 0;
-}
-
-static int lt6911uxe_get_audio_sampling_rate(struct lt6911uxe_state *lt6911uxe)
-{
-	int audio_fs, idx;
-	static const int eps = 1500;
-	static const int rates_default[] = {
-		32000, 44100, 48000, 88200, 96000, 176400, 192000
-	};
-
-    return 48000;
-
-	audio_fs = lt6911uxe_i2c_rd8(&lt6911uxe->sd, REG_AUDIO_FS_H) << 8;
-	audio_fs |= lt6911uxe_i2c_rd8(&lt6911uxe->sd, REG_AUDIO_FS_L);
-
-	dev_dbg(&lt6911uxe->i2c_client->dev, "%s: Audio sample rate %d [Hz]\n",
-		__func__, audio_fs);
-
-	/* audio_fs is an approximation of sample rate - search nearest */
-	for (idx = 0; idx < ARRAY_SIZE(rates_default); ++idx) {
-		if ((rates_default[idx] - eps < audio_fs) &&
-		    (rates_default[idx] + eps > audio_fs))
-			return rates_default[idx];
-	}
-	dev_info(&lt6911uxe->i2c_client->dev, "%s: unhandled sampling rate %d [Hz]",
-		__func__, audio_fs);
-	return 0;
-}
-
-static int lt6911uxe_log_status(struct v4l2_subdev *sd)
-{
-
-#ifdef TIMINGS_ENABLE
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	v4l2_info(sd, "----- Timings -----\n");
-	if (!&lt6911uxe->detected_timings.bt.width) {
-		v4l2_info(sd, "no video detected\n");
-	} else {
-		v4l2_print_dv_timings(sd->name, "detected format: ",
-				&lt6911uxe->detected_timings, true);
-	}
-	v4l2_print_dv_timings(sd->name, "configured format: ",
-		&lt6911uxe->timings, true);
-#endif
-	return 0;
-}
-
-static int lt6911uxe_subscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
-		struct v4l2_event_subscription *sub)
-{
-	dev_info(sd->dev, "%s():\n", __func__);
-	switch (sub->type) {
-	case V4L2_EVENT_SOURCE_CHANGE:
-		return v4l2_src_change_event_subdev_subscribe(sd, fh, sub);
-	case V4L2_EVENT_EOS:
-		return v4l2_event_subscribe(fh, sub, 2, NULL);
-	default:
-		return -EINVAL;
-	}
-}
-
-static const struct v4l2_dv_timings_cap *lt6911uxe_g_timings_cap(
-		struct lt6911uxe_state *lt6911uxe)
-{
-	return &lt6911uxe_timings_cap_4kp30;
-}
-
-static int lt6911uxe_g_input_status(struct v4l2_subdev *sd, u32 *status)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	*status = 0;
-	*status |= lt6911uxe->streaming ? V4L2_IN_ST_NO_SIGNAL : 0;
-
-	v4l2_dbg(1, debug, sd, "%s: status = 0x%x\n", __func__, *status);
-	return 0;
-}
-
-static int __maybe_unused lt6911uxe_s_dv_timings(struct v4l2_subdev *sd,
-		struct v4l2_dv_timings *timings)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	if (!v4l2_valid_dv_timings(timings, lt6911uxe_g_timings_cap(lt6911uxe),
-				   NULL, NULL)) {
-		v4l2_err(sd, "%s: timings out of range\n", __func__);
-		return -EINVAL;
-	}
-
-	v4l2_find_dv_timings_cap(timings, lt6911uxe_g_timings_cap(lt6911uxe), 0,
-				 NULL, NULL);
-	memset(timings->bt.reserved, 0, sizeof(timings->bt.reserved));
-	lt6911uxe->timings = *timings;
-	return 0;
-}
-
-static int lt6911uxe_g_dv_timings(struct v4l2_subdev *sd,
-		struct v4l2_dv_timings *timings)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	v4l2_dbg(3, debug, sd, "%s():\n", __func__);
-	*timings = lt6911uxe->timings;
-	return 0;
-}
-
-static int __maybe_unused lt6911uxe_query_dv_timings(struct v4l2_subdev *sd,
-		struct v4l2_dv_timings *timings)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	v4l2_dbg(3, debug, sd, "%s():\n", __func__);
-	if (false == lt6911uxe->streaming) {
-		v4l2_warn(sd, "%s: no valid signal\n", __func__);
-		return -ENOLINK;
-	}
-
-	if (!v4l2_valid_dv_timings(&lt6911uxe->detected_timings,
-		lt6911uxe_g_timings_cap(lt6911uxe), NULL, NULL)) {
-		v4l2_warn(sd, "%s: timings out of range\n", __func__);
-		return -ERANGE;
-	}
-
-	*timings = lt6911uxe->detected_timings;
-	return 0;
-}
-
-static const struct v4l2_ctrl_config lt6911uxe_ctrl_audio_sampling_rate = {
-	.id = LT6911UXE_CID_AUDIO_SAMPLING_RATE,
-	.name = "Audio Sampling Rate",
-	.type = V4L2_CTRL_TYPE_INTEGER,
-	.min = 32000,
-	.max = 192000,
-	.step = 100,
-	.def = 48000,
-	.flags = V4L2_CTRL_FLAG_READ_ONLY,
-};
-
-static const struct v4l2_ctrl_config lt6911uxe_ctrl_audio_present = {
-	.id = LT6911UXE_CID_AUDIO_PRESENT,
-	.name = "Audio Present",
-	.type = V4L2_CTRL_TYPE_BOOLEAN,
-	.min = 0,
-	.max = 1,
-	.step = 1,
-	.def = 0,
-	.flags = V4L2_CTRL_FLAG_READ_ONLY,
-};
-
-static u64 __maybe_unused get_hblank(struct lt6911uxe_state *lt6911uxe)
-{
-	u64 hblank;
-	u64 pixel_rate;
-	u64 pixel_clk;
-
-	if (lt6911uxe->cur_mode->lanes == 4) {
-		pixel_rate = FSERIAL_CLK_4_LANE;
-		pixel_clk = PIX_CLK_4_LANE;
-	} else if (lt6911uxe->cur_mode->lanes == 2) {
-		pixel_rate = FSERIAL_CLK_2_LANE;
-		pixel_clk = PIX_CLK_2_LANE;
-	} else {
-		pixel_rate = FSERIAL_CLK_4_LANE;
-		pixel_clk = PIX_CLK_4_LANE;
-	}
-
-	if (pixel_clk)
-		hblank = 0x128 * (pixel_rate / pixel_clk);
-	else
-		hblank = 1184;
-
-	return hblank;
-}
-
-static int lt6911uxe_set_ctrl(struct v4l2_ctrl *ctrl)
-{
-	struct lt6911uxe_state *lt6911uxe = container_of(ctrl->handler,
-				struct lt6911uxe_state, ctrl_handler);
-	struct i2c_client *client = v4l2_get_subdevdata(&lt6911uxe->sd);
-	s64 exposure_max;
-	int ret = 0;
-
-	/* Propagate change of current control to all related controls */
-	if (ctrl->id == V4L2_CID_VBLANK) {
-		/* Update max exposure while meeting expected vblanking */
-		exposure_max = 1;
-		__v4l2_ctrl_modify_range(lt6911uxe->exposure,
-					 lt6911uxe->exposure->minimum,
-					 exposure_max,
-					 lt6911uxe->exposure->step,
-					 lt6911uxe->cur_mode->height - 1);
-	}
-
-	/* V4L2 controls values will be applied only when power is already up */
-	if (!pm_runtime_get_if_in_use(&client->dev))
-		return 0;
-
-	switch (ctrl->id) {
-	case V4L2_CID_ANALOGUE_GAIN:
-		dev_dbg(&client->dev, "set analogue gain.\n");
-		break;
-
-	case V4L2_CID_DIGITAL_GAIN:
-		dev_dbg(&client->dev, "set digital gain.\n");
-		break;
-
-	case V4L2_CID_EXPOSURE:
-		dev_dbg(&client->dev, "set exposure time.\n");
-		break;
-
-	case V4L2_CID_VBLANK:
-		dev_dbg(&client->dev, "set vblank %d\n",
-			lt6911uxe->cur_mode->height + ctrl->val);
-		break;
-	case V4L2_CID_FLASH_STROBE_SOURCE:
-		dev_dbg(&client->dev, "set led flash source %d\n", ctrl->val);
-		break;
-
-	case V4L2_CID_FLASH_STROBE:
-		dev_dbg(&client->dev, "set flash strobe.\n");
-		break;
-
-	case V4L2_CID_FLASH_STROBE_STOP:
-		dev_dbg(&client->dev, "turn off led %d\n", ctrl->val);
-		break;
-
-	case V4L2_CID_FLASH_TIMEOUT:
-		dev_dbg(&client->dev, "set led delay\n");
-		break;
-
-	default:
-		ret = -EINVAL;
-		break;
-	}
-
-	pm_runtime_put(&client->dev);
-
-	return ret;
-}
-
-static const struct v4l2_ctrl_ops lt6911uxe_ctrl_ops = {
-	.s_ctrl = lt6911uxe_set_ctrl,
-};
-
-static struct v4l2_ctrl_config lt6911uxe_csi_port = {
-	.ops	= &lt6911uxe_ctrl_ops,
-	.id	= LT6911UXE_CID_CSI_PORT,
-	.type	= V4L2_CTRL_TYPE_INTEGER,
-	.name	= "CSI port",
-	.min	= 0,
-	.max	= 5,
-	.def	= 1,
-	.step	= 1,
-	.flags	= V4L2_CTRL_FLAG_READ_ONLY,
-};
-
-static struct v4l2_ctrl_config lt6911uxe_i2c_bus = {
-	.ops	= &lt6911uxe_ctrl_ops,
-	.id	= LT6911UXE_CID_I2C_BUS,
-	.type	= V4L2_CTRL_TYPE_INTEGER,
-	.name	= "I2C bus",
-	.min	= 0,
-	.max	= MINORMASK,
-	.def	= 0,
-	.step	= 1,
-	.flags	= V4L2_CTRL_FLAG_READ_ONLY,
-};
-
-static struct v4l2_ctrl_config lt6911uxe_i2c_id = {
-	.ops	= &lt6911uxe_ctrl_ops,
-	.id	= LT6911UXE_CID_I2C_ID,
-	.type	= V4L2_CTRL_TYPE_INTEGER,
-	.name	= "I2C id",
-	.min	= 0x10,
-	.max	= 0x77,
-	.def	= 0x10,
-	.step	= 1,
-	.flags	= V4L2_CTRL_FLAG_READ_ONLY,
-};
-
-static struct v4l2_ctrl_config lt6911uxe_i2c_slave_address = {
-	.ops	= &lt6911uxe_ctrl_ops,
-	.id	= LT6911UXE_CID_I2C_SLAVE_ADDRESS,
-	.type	= V4L2_CTRL_TYPE_INTEGER,
-	.name	= "I2C slave address",
-	.min	= 0x0,
-	.max	= 0x7f,
-	.def	= 0x56,
-	.step	= 1,
-	.flags	= V4L2_CTRL_FLAG_READ_ONLY,
-};
-
-static struct v4l2_ctrl_config lt6911uxe_fps = {
-	.ops	= &lt6911uxe_ctrl_ops,
-	.id	= LT6911UXE_CID_FPS,
-	.type	= V4L2_CTRL_TYPE_INTEGER,
-	.name	= "fps",
-	.min	= 10,
-	.max	= 60,
-	.def	= 17,
-	.step	= 1,
-	.flags	= V4L2_CTRL_FLAG_READ_ONLY,
-};
-
-static struct v4l2_ctrl_config lt6911uxe_frame_interval = {
-	.ops	= &lt6911uxe_ctrl_ops,
-	.id	= LT6911UXE_CID_FRAME_INTERVAL,
-	.type	= V4L2_CTRL_TYPE_INTEGER,
-	.name	= "frame interval",
-	.min	= 16,
-	.max	= 60,
-	.def	= 17,
-	.step	= 1,
-	.flags	= V4L2_CTRL_FLAG_READ_ONLY,
-};
-
-static u64 get_pixel_rate(struct lt6911uxe_state *lt6911uxe)
-{
-	u64 pixel_rate = 995328000ULL; /* default value: 4K@30 */
-
-	if (lt6911uxe->cur_mode->lanes) {
-		pixel_rate = (u64)lt6911uxe->cur_mode->width *
-			lt6911uxe->cur_mode->height *
-			lt6911uxe->cur_mode->fps * 16;
-		do_div(pixel_rate, lt6911uxe->cur_mode->lanes);
-	}
-
-	return pixel_rate;
-}
-
-#define LT6911UXE_LINK_FREQ_1250M	1200000000
+#define LT6911UXE_LINK_FREQ_1250M	1250000000
 #define LT6911UXE_LINK_FREQ_900M	900000000
 #define LT6911UXE_LINK_FREQ_600M	600000000
 #define LT6911UXE_LINK_FREQ_450M	450000000
@@ -740,6 +54,106 @@ static u64 get_pixel_rate(struct lt6911uxe_state *lt6911uxe)
 #define LT6911UXE_LINK_FREQ_100M	100000000
 #define LT6911UXE_PIXEL_RATE		800000000
 
+#define LT6911UXE_CHIPID	0x0221
+#define CHIPID_REGH		0xe101
+#define CHIPID_REGL		0xe100
+#define I2C_EN_REG		0xe0ee
+#define I2C_ENABLE		0x1
+#define I2C_DISABLE		0x0
+
+#define HTOTAL_H		0xe088
+#define HTOTAL_L		0xe089
+#define HACT_H			0xe08c
+#define HACT_L			0xe08d
+
+#define VTOTAL_H		0xe08a
+#define VTOTAL_L		0xe08b
+#define VACT_H			0xe08e
+#define VACT_L			0xe08f
+
+#define HS_HALF			0xe080
+#define HFP_HALF_H		0xe081
+#define HFP_HALF_L		0xe082
+
+#define VS			0xe083
+#define VFP_H			0xe097
+#define VFP_L			0xe098
+
+#define PCLK_H			0xe085
+#define PCLK_M			0xe086
+#define PCLK_L			0xe087
+
+#define BYTE_PCLK_H		0xe092
+#define BYTE_PCLK_M		0xe093
+#define BYTE_PCLK_L		0xe094
+
+#define AUDIO_FS_VALUE_H	0xe090
+#define AUDIO_FS_VALUE_L	0xe091
+
+#define LNAE_NUM		0xe095
+#define BUS_FMT			0xe096
+
+#define STREAM_CTL		0xe0b0
+#define ENABLE_STREAM		0x01
+#define DISABLE_STREAM		0x00
+
+//mipi phy timing
+#define CLK_ZERO_REG		0xeaa7
+#define CLK_PRE_REG		0xeaa8
+#define CLK_POST_REG		0xeaa9
+#define HS_LPX_REG		0xeaa4
+#define HS_PREPARE_REG		0xeaa5
+#define HS_TRAIL		0xeaa6
+#define HS_RQST_PRE_REG		0xea8a
+
+//bit[2:0] mipi hs delay
+#define MIPI_TX_PT0_TX0_DLY	0xe23a
+#define MIPI_TX_PT0_TX1_DLY	0xe23b
+#define MIPI_TX_PT0_TXC_DLY	0xe23c
+#define MIPI_TX_PT0_TX2_DLY	0xe23d
+#define MIPI_TX_PT0_TX3_DLY	0xe23e
+
+#define MIPI_TX_PT1_TX0_DLY	0xe24a
+#define MIPI_TX_PT1_TX1_DLY	0xe24b
+#define MIPI_TX_PT1_TXC_DLY	0xe24c
+#define MIPI_TX_PT1_TX2_DLY	0xe24d
+#define MIPI_TX_PT1_TX3_DLY	0xe24e
+
+#define MIPI_TIMING_MASK	0x7
+//LP driver level
+#define MIPI_TX_PT0_LPTX	0xe234
+#define MIPI_TX_PT1_LPTX	0xe244
+
+#define LT6911UXE_OUT_RGB
+#ifdef LT6911UXE_OUT_RGB
+#define LT6911UXE_MEDIA_BUS_FMT		MEDIA_BUS_FMT_RGB888_1X24
+#else
+//#define LT6911UXE_MEDIA_BUS_FMT	MEDIA_BUS_FMT_UYVY8_2X8
+#define LT6911UXE_MEDIA_BUS_FMT		MEDIA_BUS_FMT_UYVY8_1X16
+#endif
+
+#define LT6911UXE_CID_CSI_PORT	(V4L2_CID_USER_BASE | 0x1001)
+#define LT6911UXE_CID_I2C_BUS	(V4L2_CID_USER_BASE | 0x1002)
+#define LT6911UXE_CID_I2C_ID	(V4L2_CID_USER_BASE | 0x1003)
+#define LT6911UXE_CID_I2C_SLAVE_ADDRESS	(V4L2_CID_USER_BASE | 0x1004)
+#define LT6911UXE_CID_FPS	(V4L2_CID_USER_BASE | 0x1005)
+#define LT6911UXE_CID_FRAME_INTERVAL	(V4L2_CID_USER_BASE | 0x1006)
+
+#define LT6911UXE_CID_AUDIO_SAMPLING_RATE	(V4L2_CID_USER_BASE | 0x1007)
+#define LT6911UXE_CID_AUDIO_PRESENT	        (V4L2_CID_USER_BASE | 0x1008)
+
+#define LT6911UXE_NAME			"LT6911UXE"
+
+#ifdef LT6911UXE_OUT_RGB
+static const s64 link_freq_menu_items[] = {
+	LT6911UXE_LINK_FREQ_1250M,
+	LT6911UXE_LINK_FREQ_900M,
+	LT6911UXE_LINK_FREQ_600M,
+	LT6911UXE_LINK_FREQ_450M,
+	LT6911UXE_LINK_FREQ_300M,
+	LT6911UXE_LINK_FREQ_150M,
+};
+#else
 static const s64 link_freq_menu_items[] = {
 	LT6911UXE_LINK_FREQ_1250M,
 	LT6911UXE_LINK_FREQ_600M,
@@ -748,284 +162,1311 @@ static const s64 link_freq_menu_items[] = {
 	LT6911UXE_LINK_FREQ_200M,
 	LT6911UXE_LINK_FREQ_100M,
 };
-
-static int lt6911uxe_init_controls(struct lt6911uxe_state *lt6911uxe)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(&lt6911uxe->sd);
-	struct v4l2_ctrl_handler *ctrl_hdlr;
-	s64 hblank;
-	int ret;
-
-	ctrl_hdlr = &lt6911uxe->ctrl_handler;
-	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 8);
-	if (ret)
-		return ret;
-
-	ctrl_hdlr->lock = &lt6911uxe->mutex;
-#if 1
-	lt6911uxe->link_freq =
-		v4l2_ctrl_new_int_menu(ctrl_hdlr,
-			&lt6911uxe_ctrl_ops,
-			V4L2_CID_LINK_FREQ,
-			sizeof(lt6911uxe->cur_mode->pixel_clk),
-			0, &lt6911uxe->cur_mode->pixel_clk);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set link_freq ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
-	if (lt6911uxe->link_freq)
-		lt6911uxe->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-#else
-
-	lt6911uxe->link_freq = v4l2_ctrl_new_int_menu(ctrl_hdlr, NULL,
-			V4L2_CID_LINK_FREQ,
-			ARRAY_SIZE(link_freq_menu_items) - 1, 0,
-			link_freq_menu_items);
 #endif
-	lt6911uxe->vblank = v4l2_ctrl_new_std(ctrl_hdlr,
-				&lt6911uxe_ctrl_ops,
-				V4L2_CID_VBLANK, 0, 1, 1, 1);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set vblank ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
 
-	lt6911uxe->analogue_gain = v4l2_ctrl_new_std(ctrl_hdlr,
-			&lt6911uxe_ctrl_ops,
-			V4L2_CID_ANALOGUE_GAIN, 0, 1, 1, 1);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set analogue_gain ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
+struct lt6911uxe {
+	struct v4l2_mbus_config_mipi_csi2 bus;
+	struct v4l2_subdev sd;
+	struct media_pad pad;
+	struct v4l2_ctrl_handler hdl;
+	struct i2c_client *i2c_client;
+	struct mutex confctl_mutex;
+	struct v4l2_ctrl *detect_tx_5v_ctrl;
+	struct v4l2_ctrl *audio_sampling_rate_ctrl;
+	struct v4l2_ctrl *audio_present_ctrl;
+	struct v4l2_ctrl *link_freq;
+	struct v4l2_ctrl *pixel_rate;
+	struct delayed_work delayed_work_hotplug;
+	struct delayed_work delayed_work_res_change;
+	struct v4l2_dv_timings timings;
+	struct clk *xvclk;
+	struct gpio_desc *reset_gpio;
+	struct gpio_desc *plugin_det_gpio;
+	struct gpio_desc *power_gpio;
+	struct work_struct work_i2c_poll;
+	struct timer_list timer;
+	const char *module_facing;
+	const char *module_name;
+	const char *len_name;
+	const struct lt6911uxe_mode *cur_mode;
+	const struct lt6911uxe_mode *support_modes;
+	struct esmodule_multi_dev_info multi_dev_info;
+	struct esmodule_csi_dphy_param dphy_param;
+	u32 cfg_num;
+	struct v4l2_fwnode_endpoint bus_cfg;
+	bool nosignal;
+	bool enable_hdcp;
+	bool is_audio_present;
+	bool power_on;
+	int plugin_irq;
+	u32 mbus_fmt_code;
+	u32 module_index;
+	u32 audio_sampling_rate;
+	int lane_in_use;
+	bool dual_mipi_port;
+	bool is_hdmi_plugin;
+	bool auxiliary_port;
+	bool streaming;
+};
 
-	lt6911uxe->digital_gain = v4l2_ctrl_new_std(ctrl_hdlr,
-			&lt6911uxe_ctrl_ops,
-			V4L2_CID_DIGITAL_GAIN,	0, 1, 1, 1);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set digital_gain ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
+#if 0
+static const struct v4l2_dv_timings_cap lt6911uxe_timings_cap = {
+	.type = V4L2_DV_BT_656_1120,
+	.reserved = { 0 },
+	V4L2_INIT_BT_TIMINGS(1, 10000, 1, 10000, 0, 800000000,
+			V4L2_DV_BT_STD_CEA861 | V4L2_DV_BT_STD_DMT |
+			V4L2_DV_BT_STD_GTF | V4L2_DV_BT_STD_CVT,
+			V4L2_DV_BT_CAP_PROGRESSIVE | V4L2_DV_BT_CAP_INTERLACED |
+			V4L2_DV_BT_CAP_REDUCED_BLANKING |
+			V4L2_DV_BT_CAP_CUSTOM)
+};
+#else
+static const struct v4l2_dv_timings_cap lt6911uxe_timings_cap = {
+	.type = V4L2_DV_BT_656_1120,
+	/* keep this initialization for compatibility with GCC < 4.4.6 */
+	.reserved = { 0 },
+	/* Pixel clock from REF_01 p. 20. Min/max height/width are unknown */
+	V4L2_INIT_BT_TIMINGS(
+		160, 3840,				/* min/max width */
+		120, 2160,				/* min/max height */
+		25000000, 297000000,	/* min/max pixelclock */
+		V4L2_DV_BT_STD_CEA861 | V4L2_DV_BT_STD_DMT |
+		V4L2_DV_BT_STD_CVT,
+		V4L2_DV_BT_CAP_PROGRESSIVE | V4L2_DV_BT_CAP_CUSTOM |
+		V4L2_DV_BT_CAP_REDUCED_BLANKING)
+};
+#endif
 
-	lt6911uxe->exposure = v4l2_ctrl_new_std(ctrl_hdlr,
-				&lt6911uxe_ctrl_ops,
-				V4L2_CID_EXPOSURE, 0, 1, 1, 1);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set exposure ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
+struct lt6911uxe_mode {
+	u32 width;
+	u32 height;
+	struct v4l2_fract max_fps;
+	u32 hts_def;
+	u32 vts_def;
+	u32 exp_def;
+	u32 mipi_freq_idx;
+	u32 interlace;
+};
 
-	lt6911uxe_csi_port.def = lt6911uxe->platform_data->port;
-	lt6911uxe->csi_port =
-		v4l2_ctrl_new_custom(ctrl_hdlr, &lt6911uxe_csi_port, NULL);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
+static struct esmodule_csi_dphy_param es770x_dcphy_param = {
+	.vendor = 1, //PHY_VENDOR_SAMSUNG,
+	.lp_vol_ref = 3,
+	.lp_hys_sw = {3, 0, 3, 0},
+	.lp_escclk_pol_sel = {1, 1, 0, 0},
+	.skew_data_cal_clk = {0, 13, 0, 13},
+	.clk_hs_term_sel = 2,
+	.data_hs_term_sel = {2, 2, 2, 2},
+	.reserved = {0},
+};
 
-	lt6911uxe_i2c_bus.def = i2c_adapter_id(client->adapter);
-	lt6911uxe->i2c_bus =
-		v4l2_ctrl_new_custom(ctrl_hdlr, &lt6911uxe_i2c_bus, NULL);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set i2c_bus ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
+static const struct lt6911uxe_mode supported_modes_dphy[] = {
+	{
+		.width = 5120,
+		.height = 2160,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 480000,
+		},
+		.hts_def = 5500,
+		.vts_def = 2250,
+		.mipi_freq_idx = 0,
+		.interlace = 0,
+	}, {
+		.width = 4096,
+		.height = 2160,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 4400,
+		.vts_def = 2250,
+		.mipi_freq_idx = 0,
+		.interlace = 0,
+	}, {
+		.width = 4096,
+		.height = 2160,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
+		.hts_def = 4400,
+		.vts_def = 2250,
+		.mipi_freq_idx = 1,
+		.interlace = 0,
+	}, {
+		.width = 3840,
+		.height = 2160,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 4400,
+		.vts_def = 2250,
+		.mipi_freq_idx = 0,
+		.interlace = 0,
+	}, {
+		.width = 3840,
+		.height = 2160,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
+		.hts_def = 4400,
+		.vts_def = 2250,
+		.mipi_freq_idx = 1,
+		.interlace = 0,
+	}, {
+		.width = 1920,
+		.height = 1080,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 2200,
+		.vts_def = 1125,
+		.mipi_freq_idx = 3,
+		.interlace = 0,
+	}, {
+		.width = 1920,
+		.height = 1200,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 2592,
+		.vts_def = 1245,
+		.mipi_freq_idx = 3,
+		.interlace = 0,
+	}, {
+		.width = 1920,
+		.height = 1080,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
+		.hts_def = 2200,
+		.vts_def = 1125,
+		.mipi_freq_idx = 4,
+		.interlace = 0,
+	}, {
+		.width = 1920,
+		.height = 1080,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 2200,
+		.vts_def = 1125,
+		.mipi_freq_idx = 4,
+		.interlace = 1,
+	}, {
+		.width = 1680,
+		.height = 1050,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 2240,
+		.vts_def = 1089,
+		.mipi_freq_idx = 3,
+		.interlace = 0,
+	}, {
+		.width = 1600,
+		.height = 1200,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 2160,
+		.vts_def = 1250,
+		.mipi_freq_idx = 3,
+		.interlace = 0,
+	}, {
+		.width = 1600,
+		.height = 900,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1800,
+		.vts_def = 1000,
+		.mipi_freq_idx = 3,
+		.interlace = 0,
+	}, {
+		.width = 1440,
+		.height = 900,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1904,
+		.vts_def = 934,
+		.mipi_freq_idx = 3,
+		.interlace = 0,
+	}, {
+		.width = 1440,
+		.height = 240,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1716,
+		.vts_def = 262,
+		.mipi_freq_idx = 5,
+		.interlace = 0,
+	}, {
+		.width = 1360,
+		.height = 768,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1792,
+		.vts_def = 795,
+		.mipi_freq_idx = 4,
+		.interlace = 0,
+	}, {
+		.width = 1280,
+		.height = 1024,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1688,
+		.vts_def = 1066,
+		.mipi_freq_idx = 3,
+		.interlace = 0,
+	}, {
+		.width = 1280,
+		.height = 960,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1712,
+		.vts_def = 994,
+		.mipi_freq_idx = 3,
+		.interlace = 0,
+	}, {
+		.width = 1280,
+		.height = 800,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1680,
+		.vts_def = 828,
+		.mipi_freq_idx = 4,
+		.interlace = 0,
+	}, {
+		.width = 1280,
+		.height = 768,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1664,
+		.vts_def = 798,
+		.mipi_freq_idx = 4,
+		.interlace = 0,
+	}, {
+		.width = 1280,
+		.height = 720,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1650,
+		.vts_def = 750,
+		.mipi_freq_idx = 4,
+		.interlace = 0,
+	}, {
+		.width = 1152,
+		.height = 864,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 750000,
+		},
+		.hts_def = 1600,
+		.vts_def = 900,
+		.mipi_freq_idx = 4,
+		.interlace = 0,
+	}, {
+		.width = 1024,
+		.height = 768,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1344,
+		.vts_def = 806,
+		.mipi_freq_idx = 4,
+		.interlace = 0,
+	}, {
+		.width = 800,
+		.height = 600,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 1056,
+		.vts_def = 628,
+		.mipi_freq_idx = 5,
+		.interlace = 0,
+	}, {
+		.width = 720,
+		.height = 576,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 500000,
+		},
+		.hts_def = 864,
+		.vts_def = 625,
+		.mipi_freq_idx = 5,
+		.interlace = 0,
+	}, {
+		.width = 720,
+		.height = 480,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 858,
+		.vts_def = 525,
+		.mipi_freq_idx = 5,
+		.interlace = 0,
+	}, {
+		.width = 720,
+		.height = 400,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 850000,
+		},
+		.hts_def = 936,
+		.vts_def = 446,
+		.mipi_freq_idx = 5,
+		.interlace = 0,
+	}, {
+		.width = 720,
+		.height = 240,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.mipi_freq_idx = 5,
+		.interlace = 0,
+	}, {
+		.width = 640,
+		.height = 480,
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 600000,
+		},
+		.hts_def = 800,
+		.vts_def = 525,
+		.mipi_freq_idx = 5,
+		.interlace = 0,
+	},
+};
 
-	lt6911uxe_i2c_id.def = client->addr;
-	lt6911uxe->i2c_id = v4l2_ctrl_new_custom(ctrl_hdlr,
-				&lt6911uxe_i2c_id, NULL);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set i2c_id ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
+static void lt6911uxe_format_change(struct v4l2_subdev *sd);
+static int lt6911uxe_s_ctrl_detect_tx_5v(struct v4l2_subdev *sd);
+static int lt6911uxe_s_dv_timings(struct v4l2_subdev *sd,
+				struct v4l2_dv_timings *timings);
+static void lt6911uxe_enable_poll_timer(struct lt6911uxe *lt6911uxe);
 
-	lt6911uxe_i2c_slave_address.def =
-		lt6911uxe->platform_data->i2c_slave_address;
-	lt6911uxe->i2c_slave_address = v4l2_ctrl_new_custom(ctrl_hdlr,
-					&lt6911uxe_i2c_slave_address, NULL);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set i2c_slave_address ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
-
-	lt6911uxe_fps.def = lt6911uxe->cur_mode->fps;
-	lt6911uxe->fps = v4l2_ctrl_new_custom(ctrl_hdlr, &lt6911uxe_fps, NULL);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set fps ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
-
-	if (lt6911uxe->cur_mode->fps)
-		lt6911uxe_frame_interval.def = 1000 / lt6911uxe->cur_mode->fps;
-	else
-		lt6911uxe_frame_interval.def = 58;
-
-	lt6911uxe->frame_interval = v4l2_ctrl_new_custom(ctrl_hdlr,
-					&lt6911uxe_frame_interval, NULL);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set frame_interval ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
-
-	lt6911uxe->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr,
-				&lt6911uxe_ctrl_ops,
-				V4L2_CID_PIXEL_RATE,
-				get_pixel_rate(lt6911uxe),
-				get_pixel_rate(lt6911uxe), 1,
-				get_pixel_rate(lt6911uxe));
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set pixel_rate ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
-	if (lt6911uxe->pixel_rate)
-		lt6911uxe->pixel_rate->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-
-	hblank = 1;
-	lt6911uxe->hblank = v4l2_ctrl_new_std(ctrl_hdlr,
-				&lt6911uxe_ctrl_ops,
-				V4L2_CID_HBLANK, 0, 1, 1, 1);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set hblank ctrl_hdlr, err=%d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
-	if (lt6911uxe->hblank)
-		lt6911uxe->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-
-	/* custom v4l2 audio controls */
-	lt6911uxe->audio_sampling_rate_ctrl = v4l2_ctrl_new_custom(
-		ctrl_hdlr, &lt6911uxe_ctrl_audio_sampling_rate, NULL);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set audio sampling rate ctrl, err=%d.\n",
-			 ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
-	lt6911uxe->audio_present_ctrl = v4l2_ctrl_new_custom(ctrl_hdlr,
-		&lt6911uxe_ctrl_audio_present, NULL);
-	if (ctrl_hdlr->error) {
-		dev_dbg(&client->dev, "Set audio present ctrl, error = %d.\n",
-			ctrl_hdlr->error);
-		return ctrl_hdlr->error;
-	}
-
-	lt6911uxe->sd.ctrl_handler = ctrl_hdlr;
-	return 0;
+static inline struct lt6911uxe *to_lt6911uxe(struct v4l2_subdev *sd)
+{
+	return container_of(sd, struct lt6911uxe, sd);
 }
 
-static void lt6911uxe_update_pad_format(const struct lt6911uxe_mode *mode,
-				     struct v4l2_mbus_framefmt *fmt)
+static void i2c_rd(struct v4l2_subdev *sd, u16 reg, u8 *values, u32 n)
 {
-	// printk("%s, %d, 0x%08x \n", __func__, __LINE__, mode->code);
-	fmt->width = mode->width;
-	fmt->height = mode->height;
-	fmt->code = mode->code;
-	fmt->field = V4L2_FIELD_NONE;
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	struct i2c_client *client = lt6911uxe->i2c_client;
+	int err;
+	u8 buf[2] = { 0xFF, reg >> 8};
+	u8 reg_addr = reg & 0xFF;
+	struct i2c_msg msgs[3];
+
+	// check upgrading
+	is_lt6911_inUpgrading();
+
+	msgs[0].addr = client->addr;
+	msgs[0].flags = 0;
+	msgs[0].len = 2;
+	msgs[0].buf = buf;
+
+	msgs[1].addr = client->addr;
+	msgs[1].flags = 0;
+	msgs[1].len = 1;
+	msgs[1].buf = &reg_addr;
+
+	msgs[2].addr = client->addr;
+	msgs[2].flags = I2C_M_RD;
+	msgs[2].len = n;
+	msgs[2].buf = values;
+
+	err = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
+	if (err != ARRAY_SIZE(msgs)) {
+		v4l2_err(sd, "%s: reading register 0x%x from 0x%x failed\n",
+				__func__, reg, client->addr);
+	}
+
+	return;
+
+	switch (n) {
+	case 1:
+		v4l2_info(sd, "I2C read 0x%04x = 0x%02x\n",
+			reg, values[0]);
+		break;
+	case 2:
+		v4l2_info(sd, "I2C read 0x%04x = 0x%02x%02x\n",
+			reg, values[1], values[0]);
+		break;
+	case 4:
+		v4l2_info(sd, "I2C read 0x%04x = 0x%02x%02x%02x%02x\n",
+			reg, values[3], values[2], values[1], values[0]);
+		break;
+	default:
+		v4l2_info(sd, "I2C read %d bytes from address 0x%04x\n",
+			n, reg);
+	}
 }
 
-static int lt6911uxe_start_streaming(struct lt6911uxe_state *lt6911uxe)
+static void i2c_wr(struct v4l2_subdev *sd, u16 reg, u8 *values, u32 n)
 {
-	int ret = 0;
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	struct i2c_client *client = lt6911uxe->i2c_client;
+	int err, i;
+	struct i2c_msg msgs[2];
+	u8 data[I2C_MAX_XFER_SIZE];
+	u8 buf[2] = { 0xFF, reg >> 8};
 
-	printk("%s, %d \n", __func__, __LINE__);
+	// check upgrading
+	is_lt6911_inUpgrading();
 
-	if (lt6911uxe->auxiliary_port == true)
-		return 0;
+	if ((1 + n) > I2C_MAX_XFER_SIZE) {
+		n = I2C_MAX_XFER_SIZE - 1;
+		v4l2_warn(sd, "i2c wr reg=%04x: len=%d is too big!\n",
+			  reg, 1 + n);
+	}
 
-	lt6911uxe_ext_control(lt6911uxe, true);
-	lt6911uxe_csi_enable(&lt6911uxe->sd, true);
-	lt6911uxe_ext_control(lt6911uxe, false);
+	msgs[0].addr = client->addr;
+	msgs[0].flags = 0;
+	msgs[0].len = 2;
+	msgs[0].buf = buf;
 
-	ret = __v4l2_ctrl_handler_setup(lt6911uxe->sd.ctrl_handler);
-	if (ret)
-		return ret;
+	msgs[1].addr = client->addr;
+	msgs[1].flags = 0;
+	msgs[1].len = 1 + n;
+	msgs[1].buf = data;
 
-	return 0;
-}
+	data[0] = reg & 0xff;
+	for (i = 0; i < n; i++)
+		data[1 + i] = values[i];
 
-static void lt6911uxe_stop_streaming(struct lt6911uxe_state *lt6911uxe)
-{
-	if (lt6911uxe->auxiliary_port == true)
+	err = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
+	if (err < 0) {
+		v4l2_err(sd, "%s: writing register 0x%x from 0x%x failed\n",
+				__func__, reg, client->addr);
 		return;
+	}
 
-	printk("%s, %d \n", __func__, __LINE__);
+	return;
 
-	/*The fps of 1080p60fps will be dropped to half when the CSI disabled. */
-	lt6911uxe_ext_control(lt6911uxe, true);
-	lt6911uxe_csi_enable(&lt6911uxe->sd, false);
-	lt6911uxe_ext_control(lt6911uxe, false);
+	switch (n) {
+	case 1:
+		v4l2_info(sd, "I2C write 0x%04x = 0x%02x\n",
+				reg, data[1]);
+		break;
+	case 2:
+		v4l2_info(sd, "I2C write 0x%04x = 0x%02x%02x\n",
+				reg, data[2], data[1]);
+		break;
+	case 4:
+		v4l2_info(sd, "I2C write 0x%04x = 0x%02x%02x%02x%02x\n",
+				reg, data[4], data[3], data[2], data[1]);
+		break;
+	default:
+		v4l2_info(sd, "I2C write %d bytes from address 0x%04x\n",
+				n, reg);
+	}
 }
 
-static int lt6911uxe_set_stream(struct v4l2_subdev *sd, int enable)
+static u8 i2c_rd8(struct v4l2_subdev *sd, u16 reg)
 {
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-	int ret = 0;
+	u32 val;
 
-	printk("%s, %d \n", __func__, __LINE__);
+	i2c_rd(sd, reg, (u8 __force *)&val, 1);
+	return val;
+}
 
-	if (lt6911uxe->streaming == enable)
-		return 0;
+static void i2c_wr8(struct v4l2_subdev *sd, u16 reg, u8 val)
+{
+	i2c_wr(sd, reg, &val, 1);
+}
 
-	if (lt6911uxe->auxiliary_port == true)
-		return 0;
+static __maybe_unused void i2c_wr8_and_or(struct v4l2_subdev *sd, u16 reg, u32 mask,
+			   u8 val)
+{
+	u8 val_p;
 
-	mutex_lock(&lt6911uxe->mutex);
-	if (enable) {
-		dev_dbg(sd->dev, "[%s()], start streaming.\n", __func__);
-		ret = lt6911uxe_start_streaming(lt6911uxe);
-		if (ret) {
-			enable = 0;
-			lt6911uxe_stop_streaming(lt6911uxe);
-		}
-	} else {
-		dev_dbg(sd->dev, "[%s()], stop streaming.\n", __func__);
-		lt6911uxe_stop_streaming(lt6911uxe);
+	val_p = i2c_rd8(sd, reg);
+	i2c_wr8(sd, reg, (val_p & mask) | val);
+}
+
+static void lt6911uxe_i2c_enable(struct v4l2_subdev *sd)
+{
+	i2c_wr8(sd, I2C_EN_REG, I2C_ENABLE);
+}
+
+static void lt6911uxe_i2c_disable(struct v4l2_subdev *sd)
+{
+	i2c_wr8(sd, I2C_EN_REG, I2C_DISABLE);
+}
+
+static inline bool tx_5v_power_present(struct v4l2_subdev *sd)
+{
+	bool ret;
+	int val, i, cnt;
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	/* if not use plugin det gpio */
+	if (!lt6911uxe->plugin_det_gpio)
+		return true;
+
+	cnt = 0;
+	for (i = 0; i < 5; i++) {
+		val = gpiod_get_value(lt6911uxe->plugin_det_gpio);
+		if (val == 0)
+			cnt++;
+		usleep_range(500, 600);
 	}
-	mutex_unlock(&lt6911uxe->mutex);
 
-	lt6911uxe->streaming = enable;
+	ret = (cnt >= 4) ? true : false;
+	lt6911uxe->is_hdmi_plugin = ret;
+	v4l2_info(sd, "%s: %d\n", __func__, ret);
 
 	return ret;
 }
 
-static int lt6911uxe_g_frame_interval(struct v4l2_subdev *sd,
-		struct v4l2_subdev_frame_interval *fival)
+static bool lt6911uxe_hdmi_detect(struct lt6911uxe *lt6911uxe)
 {
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
+	bool ret;
+	int val, i, cnt;
 
-	fival->pad = 0;
-	fival->interval.numerator = 1;
-	fival->interval.denominator = lt6911uxe->cur_mode->fps;
+	/* if not use plugin det gpio */
+	if (!lt6911uxe->plugin_det_gpio)
+		return true;
+
+	cnt = 0;
+	for (i = 0; i < 5; i++) {
+		val = gpiod_get_value(lt6911uxe->plugin_det_gpio);
+		if (val == 0)
+			cnt++;
+		usleep_range(500, 600);
+	}
+
+	ret = (cnt >= 4) ? true : false;
+	lt6911uxe->is_hdmi_plugin = ret;
+	printk("%s: %d\n", __func__, ret);
+
+	return ret;
+}
+
+static inline bool no_signal(struct v4l2_subdev *sd)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	v4l2_dbg(1, debug, sd, "%s no signal:%d\n", __func__,
+			lt6911uxe->nosignal);
+
+	return lt6911uxe->nosignal;
+}
+
+static inline bool audio_present(struct v4l2_subdev *sd)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	return lt6911uxe->is_audio_present;
+}
+
+static int get_audio_sampling_rate(struct v4l2_subdev *sd)
+{
+	static const int code_to_rate[] = {
+		44100, 0, 48000, 32000, 22050, 384000, 24000, 352800,
+		88200, 768000, 96000, 705600, 176400, 0, 192000, 0
+	};
+
+	if (no_signal(sd))
+		return 0;
+
+	return code_to_rate[2];
+}
+
+static inline unsigned int fps_calc(const struct v4l2_bt_timings *t)
+{
+	if (!V4L2_DV_BT_FRAME_HEIGHT(t) || !V4L2_DV_BT_FRAME_WIDTH(t))
+		return 0;
+
+	return DIV_ROUND_CLOSEST((unsigned int)t->pixelclock,
+			V4L2_DV_BT_FRAME_HEIGHT(t) * V4L2_DV_BT_FRAME_WIDTH(t));
+}
+
+static bool lt6911uxe_rcv_supported_res(struct v4l2_subdev *sd, u32 width,
+		u32 height)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	u32 i;
+
+	for (i = 0; i < lt6911uxe->cfg_num; i++) {
+		if ((lt6911uxe->support_modes[i].width == width) &&
+		    (lt6911uxe->support_modes[i].height == height)) {
+			break;
+		}
+	}
+
+	if (i == lt6911uxe->cfg_num) {
+		//v4l2_err(sd, "%s do not support res wxh: %dx%d\n", __func__,
+		//		width, height);
+		return false;
+	} else {
+		return true;
+	}
+}
+
+static int lt6911uxe_get_detected_timings(struct v4l2_subdev *sd,
+				     struct v4l2_dv_timings *timings)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	struct v4l2_bt_timings *bt = &timings->bt;
+	u32 hact, vact, htotal, vtotal, hs, vs, hbp, vbp, hfp, vfp;
+	u32 pixel_clock, fps, halt_pix_clk;
+	u8 clk_h, clk_m, clk_l;
+	u8 val_h, val_l;
+	u32 byte_clk, mipi_clk, mipi_data_rate;
+
+	memset(timings, 0, sizeof(struct v4l2_dv_timings));
+
+	clk_h = i2c_rd8(sd, PCLK_H);
+	clk_m = i2c_rd8(sd, PCLK_M);
+	clk_l = i2c_rd8(sd, PCLK_L);
+	halt_pix_clk = ((clk_h << 16) | (clk_m << 8) | clk_l);
+	pixel_clock = halt_pix_clk * 1000 * 2;
+
+	clk_h = i2c_rd8(sd, BYTE_PCLK_H);
+	clk_m = i2c_rd8(sd, BYTE_PCLK_M);
+	clk_l = i2c_rd8(sd, BYTE_PCLK_L);
+	byte_clk = ((clk_h << 16) | (clk_m << 8) | clk_l) * 1000;
+	mipi_clk = byte_clk * 4;
+	mipi_data_rate = byte_clk * 8;
+
+	val_h = i2c_rd8(sd, HTOTAL_H);
+	val_l = i2c_rd8(sd, HTOTAL_L);
+	htotal = ((val_h << 8) | val_l) * 2;
+
+	val_h = i2c_rd8(sd, VTOTAL_H);
+	val_l = i2c_rd8(sd, VTOTAL_L);
+	vtotal = (val_h << 8) | val_l;
+
+	val_h = i2c_rd8(sd, HACT_H);
+	val_l = i2c_rd8(sd, HACT_L);
+	hact = ((val_h << 8) | val_l) * 2;
+
+	val_h = i2c_rd8(sd, VACT_H);
+	val_l = i2c_rd8(sd, VACT_L);
+	vact = (val_h << 8) | val_l;
+
+	hs = i2c_rd8(sd, HS_HALF) * 2;
+
+	val_h = i2c_rd8(sd, HFP_HALF_H);
+	val_l = i2c_rd8(sd, HFP_HALF_L);
+	hfp = ((val_h << 8) | val_l) * 2;
+
+	hbp = htotal - hact - hs - hfp;
+
+	vs = i2c_rd8(sd, VS);
+	val_h = i2c_rd8(sd, VFP_H);
+	val_l = i2c_rd8(sd, VFP_L);
+	vfp = (val_h << 8) | val_l;
+
+	vbp = vtotal - vact - vs - vfp;
+
+	lt6911uxe->nosignal = false;
+	lt6911uxe->is_audio_present = true;
+	timings->type = V4L2_DV_BT_656_1120;
+	bt->interlaced = V4L2_DV_PROGRESSIVE;
+	bt->width = hact;
+	bt->height = vact;
+	bt->vsync = vs;
+	bt->hsync = hs;
+	bt->hfrontporch = hfp;
+	bt->vfrontporch = vfp;
+	bt->hbackporch = hbp;
+	bt->vbackporch = vbp;
+	bt->pixelclock = pixel_clock;
+	fps = pixel_clock / (htotal * vtotal);
+
+	/* for interlaced res 1080i 576i 480i*/
+	if ((hact == 1920 && vact == 540) || (hact == 1440 && vact == 288)
+			|| (hact == 1440 && vact == 240)) {
+		bt->interlaced = V4L2_DV_INTERLACED;
+		bt->height *= 2;
+		bt->il_vsync = bt->vsync + 1;
+	} else {
+		bt->interlaced = V4L2_DV_PROGRESSIVE;
+	}
+
+	if (!lt6911uxe_rcv_supported_res(sd, hact, bt->height)) {
+		lt6911uxe->nosignal = true;
+		//v4l2_err(sd, "%s: rcv err res, return no signal!\n", __func__);
+		return -EINVAL;
+	}
+
+	//v4l2_info(sd, "act:%dx%d, total:%dx%d, pixclk:%d, fps:%d\n",
+	//		hact, vact, htotal, vtotal, pixel_clock, fps);
+	//v4l2_info(sd, "byte_clk:%u, mipi_clk:%u, mipi_data_rate:%u\n",
+	//		byte_clk, mipi_clk, mipi_data_rate);
+	//v4l2_info(sd, "hfp:%d, hs:%d, hbp:%d, vfp:%d, vs:%d, vbp:%d, inerlaced:%d\n",
+	//		bt->hfrontporch, bt->hsync, bt->hbackporch, bt->vfrontporch,
+	//		bt->vsync, bt->vbackporch, bt->interlaced);
 
 	return 0;
 }
 
-static int lt6911uxe_set_format(struct v4l2_subdev *sd,
-				struct v4l2_subdev_state *sd_state,
-			     struct v4l2_subdev_format *fmt)
+static void lt6911uxe_delayed_work_hotplug(struct work_struct *work)
 {
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct lt6911uxe *lt6911uxe = container_of(dwork,
+			struct lt6911uxe, delayed_work_hotplug);
+	struct v4l2_subdev *sd = &lt6911uxe->sd;
+
+	lt6911uxe_s_ctrl_detect_tx_5v(sd);
+	lt6911uxe_enable_poll_timer(lt6911uxe);
+}
+
+static void lt6911uxe_delayed_work_res_change(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct lt6911uxe *lt6911uxe = container_of(dwork,
+			struct lt6911uxe, delayed_work_res_change);
+	struct v4l2_subdev *sd = &lt6911uxe->sd;
+
+	v4l2_info(sd, "lt6911uxe_delayed_work_res_change \n");
+	lt6911uxe_format_change(sd);
+}
+
+static int lt6911uxe_s_ctrl_detect_tx_5v(struct v4l2_subdev *sd)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	v4l2_info(sd, "lt6911uxe_s_ctrl_detect_tx_5v \n");
+	return v4l2_ctrl_s_ctrl(lt6911uxe->detect_tx_5v_ctrl,
+			tx_5v_power_present(sd));
+}
+
+static int lt6911uxe_s_ctrl_audio_sampling_rate(struct v4l2_subdev *sd)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	return v4l2_ctrl_s_ctrl(lt6911uxe->audio_sampling_rate_ctrl,
+			get_audio_sampling_rate(sd));
+}
+
+static int lt6911uxe_s_ctrl_audio_present(struct v4l2_subdev *sd)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	return v4l2_ctrl_s_ctrl(lt6911uxe->audio_present_ctrl,
+			audio_present(sd));
+}
+
+static int lt6911uxe_update_controls(struct v4l2_subdev *sd)
+{
+	int ret = 0;
+
+	ret |= lt6911uxe_s_ctrl_detect_tx_5v(sd);
+	ret |= lt6911uxe_s_ctrl_audio_sampling_rate(sd);
+	ret |= lt6911uxe_s_ctrl_audio_present(sd);
+
+	return ret;
+}
+
+static void lt6911uxe_config_dphy_timing(struct v4l2_subdev *sd)
+{
+	u8 val;
+
+	val = i2c_rd8(sd, CLK_ZERO_REG);
+	i2c_wr8(sd, CLK_ZERO_REG, val);
+
+	val = i2c_rd8(sd, HS_PREPARE_REG);
+	i2c_wr8(sd, HS_PREPARE_REG, val);
+
+	val = i2c_rd8(sd, HS_TRAIL);
+	i2c_wr8(sd, HS_TRAIL, val);
+	v4l2_info(sd, "%s: dphy timing: hs trail = %x\n", __func__, val);
+
+	val = i2c_rd8(sd, MIPI_TX_PT0_TX0_DLY);
+	i2c_wr8_and_or(sd, MIPI_TX_PT0_TX0_DLY, ~MIPI_TIMING_MASK, val);
+	v4l2_info(sd, "%s: dphy timing: port0 tx0 delay = %x\n", __func__, val);
+
+	val = i2c_rd8(sd, MIPI_TX_PT0_LPTX);
+	i2c_wr8(sd, MIPI_TX_PT0_LPTX, val);
+	v4l2_info(sd, "%s: dphy timing: port0 lptx = %x\n", __func__, val);
+
+	v4l2_info(sd, "%s: dphy timing config done.\n", __func__);
+}
+
+static inline void enable_stream(struct v4l2_subdev *sd, bool enable)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	if (enable) {
+		lt6911uxe_config_dphy_timing(sd);
+		usleep_range(5000, 6000);
+		i2c_wr8(&lt6911uxe->sd, STREAM_CTL, ENABLE_STREAM);
+	} else {
+		i2c_wr8(&lt6911uxe->sd, STREAM_CTL, DISABLE_STREAM);
+	}
+	msleep(20);
+
+	v4l2_dbg(2, debug, sd, "%s: %sable\n", __func__, enable ? "en" : "dis");
+}
+
+static void lt6911uxe_format_change(struct v4l2_subdev *sd)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	struct v4l2_dv_timings timings;
+	const struct v4l2_event lt6911uxe_ev_fmt = {
+		.type = V4L2_EVENT_SOURCE_CHANGE,
+		.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION,
+	};
+
+	if (lt6911uxe_get_detected_timings(sd, &timings)) {
+		enable_stream(sd, false);
+		v4l2_dbg(1, debug, sd, "%s: No signal\n", __func__);
+	}
+
+	if (!v4l2_match_dv_timings(&lt6911uxe->timings, &timings, 0, false)) {
+		enable_stream(sd, false);
+		/* automatically set timing rather than set by user */
+		lt6911uxe_s_dv_timings(sd, &timings);
+		v4l2_print_dv_timings(sd->name,
+				"Format_change: New format: ",
+				&timings, false);
+		if (sd->devnode && !lt6911uxe->i2c_client->irq)
+			v4l2_subdev_notify_event(sd, &lt6911uxe_ev_fmt);
+	}
+	if (sd->devnode && lt6911uxe->i2c_client->irq)
+		v4l2_subdev_notify_event(sd, &lt6911uxe_ev_fmt);
+}
+
+static int lt6911uxe_isr(struct v4l2_subdev *sd, u32 status, bool *handled)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	schedule_delayed_work(&lt6911uxe->delayed_work_res_change, HZ / 20);
+	*handled = true;
+
+	return 0;
+}
+
+static irqreturn_t lt6911uxe_res_change_irq_handler(int irq, void *dev_id)
+{
+	struct lt6911uxe *lt6911uxe = dev_id;
+	bool handled;
+
+	lt6911uxe_isr(&lt6911uxe->sd, 0, &handled);
+
+	return handled ? IRQ_HANDLED : IRQ_NONE;
+}
+
+static irqreturn_t plugin_detect_irq_handler(int irq, void *dev_id)
+{
+	struct lt6911uxe *lt6911uxe = dev_id;
+
+	/* control hpd output level after 25ms */
+	schedule_delayed_work(&lt6911uxe->delayed_work_hotplug,
+			HZ / 40);
+
+	return IRQ_HANDLED;
+}
+
+static void lt6911uxe_irq_poll_timer(struct timer_list *t)
+{
+	struct lt6911uxe *lt6911uxe = from_timer(lt6911uxe, t, timer);
+
+	schedule_work(&lt6911uxe->work_i2c_poll);
+
+	if (lt6911uxe->is_hdmi_plugin) {
+		if (lt6911uxe->nosignal) {
+			//mod_timer(&lt6911uxe->timer, jiffies + msecs_to_jiffies(POLL_INTERVAL_MS));
+		}
+	} else {
+		if (!lt6911uxe->nosignal) {
+			//mod_timer(&lt6911uxe->timer, jiffies + msecs_to_jiffies(POLL_INTERVAL_MS));
+		}
+	}
+
+	mod_timer(&lt6911uxe->timer, jiffies + msecs_to_jiffies(POLL_INTERVAL_MS*3));
+}
+
+static void lt6911uxe_enable_poll_timer(struct lt6911uxe *lt6911uxe)
+{
+	mod_timer(&lt6911uxe->timer, jiffies + msecs_to_jiffies(POLL_INTERVAL_MS));
+}
+
+static void lt6911uxe_work_i2c_poll(struct work_struct *work)
+{
+	struct lt6911uxe *lt6911uxe = container_of(work,
+			struct lt6911uxe, work_i2c_poll);
+	struct v4l2_subdev *sd = &lt6911uxe->sd;
+
+	lt6911uxe_format_change(sd);
+}
+
+static int lt6911uxe_subscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
+				    struct v4l2_event_subscription *sub)
+{
+	switch (sub->type) {
+	case V4L2_EVENT_SOURCE_CHANGE:
+		return v4l2_src_change_event_subdev_subscribe(sd, fh, sub);
+	case V4L2_EVENT_CTRL:
+		return v4l2_ctrl_subdev_subscribe_event(sd, fh, sub);
+	default:
+		return -EINVAL;
+	}
+}
+
+static int lt6911uxe_g_input_status(struct v4l2_subdev *sd, u32 *status)
+{
+	*status = 0;
+	*status |= no_signal(sd) ? V4L2_IN_ST_NO_SIGNAL : 0;
+
+	v4l2_dbg(1, debug, sd, "%s: status = 0x%x\n", __func__, *status);
+
+	return 0;
+}
+
+static int lt6911uxe_s_dv_timings(struct v4l2_subdev *sd,
+				 struct v4l2_dv_timings *timings)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	if (!timings)
+		return -EINVAL;
+
+	if (debug)
+		v4l2_print_dv_timings(sd->name, "s_dv_timings: ",
+				timings, false);
+
+	if (v4l2_match_dv_timings(&lt6911uxe->timings, timings, 0, false)) {
+		v4l2_dbg(1, debug, sd, "%s: no change\n", __func__);
+		return 0;
+	}
+
+	lt6911uxe->timings = *timings;
+
+	enable_stream(sd, false);
+
+	return 0;
+}
+
+static int lt6911uxe_g_dv_timings(struct v4l2_subdev *sd,
+				struct v4l2_dv_timings *timings)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	*timings = lt6911uxe->timings;
+
+	return 0;
+}
+
+static int lt6911uxe_enum_dv_timings(struct v4l2_subdev *sd,
+				struct v4l2_enum_dv_timings *timings)
+{
+	if (timings->pad != 0) {
+		v4l2_err(sd, "%s: timings->pad != 0 !\n", __func__);
+		return -EINVAL;
+	}
+
+	return v4l2_enum_dv_timings_cap(timings,
+			&lt6911uxe_timings_cap, NULL, NULL);
+}
+
+static int lt6911uxe_query_dv_timings(struct v4l2_subdev *sd,
+				struct v4l2_dv_timings *timings)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	*timings = lt6911uxe->timings;
+	if (debug)
+		v4l2_print_dv_timings(sd->name,
+				"query_dv_timings: ", timings, false);
+
+	if (!v4l2_valid_dv_timings(timings, &lt6911uxe_timings_cap, NULL,
+				NULL)) {
+		v4l2_dbg(1, debug, sd, "%s: timings out of range\n",
+				__func__);
+
+		return -ERANGE;
+	}
+
+	return 0;
+}
+
+static int lt6911uxe_dv_timings_cap(struct v4l2_subdev *sd,
+				struct v4l2_dv_timings_cap *cap)
+{
+	if (cap->pad != 0) {
+		v4l2_err(sd, "%s: cap->pad != 0 !\n", __func__);
+		return -EINVAL;
+	}
+
+	*cap = lt6911uxe_timings_cap;
+
+	return 0;
+}
+
+static int lt6911uxe_g_mbus_config(struct v4l2_subdev *sd,
+			unsigned int pad, struct v4l2_mbus_config *cfg)
+{
+	//struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	//cfg->type = lt6911uxe->bus_cfg.bus_type;
+	cfg->type = V4L2_MBUS_CSI2_DPHY;
+	//cfg->bus.mipi_csi2 = lt6911uxe->bus_cfg.bus.mipi_csi2;
+	cfg->bus.mipi_csi2.num_data_lanes = 2;
+
+	printk("%s, lane : %d \n", __func__, cfg->bus.mipi_csi2.num_data_lanes);
+	return 0;
+}
+
+static int lt6911uxe_s_stream(struct v4l2_subdev *sd, int on)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	//struct i2c_client *client = lt6911uxe->i2c_client;
+
+	v4l2_info(sd, "%s: on: %d, %dx%d%s%d\n", __func__, on,
+				lt6911uxe->cur_mode->width,
+				lt6911uxe->cur_mode->height,
+				lt6911uxe->cur_mode->interlace ? "I" : "P",
+		DIV_ROUND_CLOSEST(lt6911uxe->cur_mode->max_fps.denominator,
+				  lt6911uxe->cur_mode->max_fps.numerator));
+
+	if (lt6911uxe->auxiliary_port == true) {
+		v4l2_err(sd, "%s: auxiliary_port == true !\n", __func__);
+		return 0;
+	}
+
+	enable_stream(sd, on);
+
+	return 0;
+}
+
+static int lt6911uxe_enum_mbus_code(struct v4l2_subdev *sd,
+			struct v4l2_subdev_state *sd_state,
+			struct v4l2_subdev_mbus_code_enum *code)
+{
+	switch (code->index) {
+	case 0:
+		code->code = LT6911UXE_MEDIA_BUS_FMT;
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int lt6911uxe_enum_frame_sizes(struct v4l2_subdev *sd,
+				   struct v4l2_subdev_state *sd_state,
+				   struct v4l2_subdev_frame_size_enum *fse)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	if (fse->index >= lt6911uxe->cfg_num) {
+		v4l2_err(sd, "%s, fse->index : %d \n", __func__, fse->index);
+		return -EINVAL;
+	}
+
+	if (fse->code != LT6911UXE_MEDIA_BUS_FMT) {
+		v4l2_err(sd, "%s, fse->code : 0x%x \n", __func__, fse->code);
+		return -EINVAL;
+	}
+
+	fse->min_width  = lt6911uxe->support_modes[fse->index].width;
+	fse->max_width  = lt6911uxe->support_modes[fse->index].width;
+	fse->max_height = lt6911uxe->support_modes[fse->index].height;
+	fse->min_height = lt6911uxe->support_modes[fse->index].height;
+
+	return 0;
+}
+
+static int lt6911uxe_enum_frame_interval(struct v4l2_subdev *sd,
+				struct v4l2_subdev_state *sd_state,
+				struct v4l2_subdev_frame_interval_enum *fie)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	if (fie->index >= lt6911uxe->cfg_num) {
+		v4l2_err(sd, "%s, fie->index : %d \n", __func__, fie->index);
+		return -EINVAL;
+	}
+
+	fie->code = LT6911UXE_MEDIA_BUS_FMT;
+
+	fie->width = lt6911uxe->support_modes[fie->index].width;
+	fie->height = lt6911uxe->support_modes[fie->index].height;
+	fie->interval = lt6911uxe->support_modes[fie->index].max_fps;
+
+	return 0;
+}
+
+static int lt6911uxe_get_reso_dist(const struct lt6911uxe_mode *mode,
+				struct v4l2_dv_timings *timings)
+{
+	struct v4l2_bt_timings *bt = &timings->bt;
+	u32 cur_fps, dist_fps;
+
+	cur_fps = fps_calc(bt);
+	dist_fps = DIV_ROUND_CLOSEST(mode->max_fps.denominator, mode->max_fps.numerator);
+
+	return abs(mode->width - bt->width) +
+		abs(mode->height - bt->height) + abs(dist_fps - cur_fps);
+}
+
+static const struct lt6911uxe_mode *
+lt6911uxe_find_best_fit(struct lt6911uxe *lt6911uxe)
+{
+	int dist;
+	int cur_best_fit = 0;
+	int cur_best_fit_dist = -1;
+	unsigned int i;
+
+	for (i = 0; i < lt6911uxe->cfg_num; i++) {
+		if (lt6911uxe->support_modes[i].interlace == lt6911uxe->timings.bt.interlaced) {
+			dist = lt6911uxe_get_reso_dist(&lt6911uxe->support_modes[i],
+							&lt6911uxe->timings);
+			if (cur_best_fit_dist == -1 || dist < cur_best_fit_dist) {
+				cur_best_fit_dist = dist;
+				cur_best_fit = i;
+			}
+		}
+	}
+	dev_info(&lt6911uxe->i2c_client->dev,
+		"find current mode: support_mode[%d], %dx%d%s%dfps\n",
+		cur_best_fit, lt6911uxe->support_modes[cur_best_fit].width,
+		lt6911uxe->support_modes[cur_best_fit].height,
+		lt6911uxe->support_modes[cur_best_fit].interlace ? "I" : "P",
+		DIV_ROUND_CLOSEST(lt6911uxe->support_modes[cur_best_fit].max_fps.denominator,
+		lt6911uxe->support_modes[cur_best_fit].max_fps.numerator));
+
+	return &lt6911uxe->support_modes[cur_best_fit];
+}
+
+static int lt6911uxe_get_fmt(struct v4l2_subdev *sd,
+			struct v4l2_subdev_state *sd_state,
+			struct v4l2_subdev_format *format)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	const struct lt6911uxe_mode *mode;
+
+	mutex_lock(&lt6911uxe->confctl_mutex);
+	printk("%s, %d, fmt->which = 0x%08x \n", __func__, __LINE__, format->which);
+
+	//lt6911uxe_enable_poll_timer(lt6911uxe);
+
+	format->format.code = lt6911uxe->mbus_fmt_code;
+	format->format.width = lt6911uxe->timings.bt.width;
+	format->format.height = lt6911uxe->timings.bt.height;
+	//format->format.field =
+	//lt6911uxe->timings.bt.interlaced ?
+	//V4L2_FIELD_INTERLACED : V4L2_FIELD_NONE;
+	format->format.field = V4L2_FIELD_NONE;
+	format->format.colorspace = V4L2_COLORSPACE_SRGB;
+	mutex_unlock(&lt6911uxe->confctl_mutex);
+
+	mode = lt6911uxe_find_best_fit(lt6911uxe);
+	lt6911uxe->cur_mode = mode;
+
+	__v4l2_ctrl_s_ctrl_int64(lt6911uxe->pixel_rate,
+				LT6911UXE_PIXEL_RATE);
+	__v4l2_ctrl_s_ctrl(lt6911uxe->link_freq,
+				mode->mipi_freq_idx);
+
+	v4l2_info(sd, "%s: mode->mipi_freq_idx(%d)", __func__, mode->mipi_freq_idx);
+
+	v4l2_info(sd, "%s: fmt code:%d, w:%d, h:%d, field code:%d\n",
+			__func__, format->format.code, format->format.width,
+			format->format.height, format->format.field);
+
+	return 0;
+}
+
+#if 1
+static int lt6911uxe_set_fmt(struct v4l2_subdev *sd,
+			struct v4l2_subdev_state *sd_state,
+			struct v4l2_subdev_format *format)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	const struct lt6911uxe_mode *mode;
+
+	/* is overwritten by get_fmt */
+	u32 code = format->format.code;
+	int ret = lt6911uxe_get_fmt(sd, sd_state, format);
+
+	format->format.code = code;
+	if (ret) {
+		return ret;
+	}
+
+	if (code != LT6911UXE_MEDIA_BUS_FMT) {
+		v4l2_err(sd, "%s, code : %d \n", __func__, code);
+		return -EINVAL;
+	}
+
+	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
+		v4l2_err(sd, "%s, format->which : %d \n", __func__, format->which);
+		return 0;
+	}
+
+	lt6911uxe->mbus_fmt_code = format->format.code;
+	mode = lt6911uxe_find_best_fit(lt6911uxe);
+	lt6911uxe->cur_mode = mode;
+
+	enable_stream(sd, false);
+
+	return 0;
+}
+#else
+static int lt6911uxe_set_fmt(struct v4l2_subdev *sd,
+				struct v4l2_subdev_state *sd_state,
+			     struct v4l2_subdev_format *format)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	const struct lt6911uxe_mode *mode;
 	s32 vblank_def;
 	s64 hblank;
 
-	mutex_lock(&lt6911uxe->mutex);
+	/* is overwritten by get_fmt */
+	u32 code = format->format.code;
+	int ret = lt6911uxe_get_fmt(sd, sd_state, format);
 
-	lt6911uxe_update_pad_format(lt6911uxe->cur_mode, &fmt->format);
-	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
-		*v4l2_subdev_get_try_format(sd, sd_state, fmt->pad) = fmt->format;
+	format->format.code = code;
+
+	lt6911uxe->mbus_fmt_code = format->format.code;
+	mode = lt6911uxe_find_best_fit(lt6911uxe);
+	lt6911uxe->cur_mode = mode;
+
+	printk("%s, %d \n", __func__, __LINE__);
+	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
+		*v4l2_subdev_get_try_format(sd, sd_state, format->pad) = format->format;
 	} else {
 		__v4l2_ctrl_s_ctrl(lt6911uxe->link_freq,
-			lt6911uxe->cur_mode->link_freq_index);
+			mode->mipi_freq_idx);
 		__v4l2_ctrl_modify_range(lt6911uxe->pixel_rate,
 			25000000, 297000000, 1,
 			get_pixel_rate(lt6911uxe));
@@ -1053,663 +1494,692 @@ static int lt6911uxe_set_format(struct v4l2_subdev *sd,
 			__v4l2_ctrl_s_ctrl(lt6911uxe->frame_interval, 33);
 	}
 
-	mutex_unlock(&lt6911uxe->mutex);
-
+	enable_stream(sd, false);
 	return 0;
 }
-
-static int lt6911uxe_get_format(struct v4l2_subdev *sd,
-			     struct v4l2_subdev_state *sd_state,
-			     struct v4l2_subdev_format *fmt)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	mutex_lock(&lt6911uxe->mutex);
-
-	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
-		fmt->format = *v4l2_subdev_get_try_format(&lt6911uxe->sd, sd_state,
-							fmt->pad);
-	else
-	{
-		// lt6911uxe_update_pad_format(lt6911uxe->cur_mode, &fmt->format);
-		fmt->format.width = lt6911uxe->cur_mode->width;
-		fmt->format.height = lt6911uxe->cur_mode->height;
-		fmt->format.code = lt6911uxe->cur_mode->code;
-		fmt->format.field = V4L2_FIELD_NONE;
-	}
-
-	mutex_unlock(&lt6911uxe->mutex);
-
-	return 0;
-}
-
-static int lt6911uxe_enum_mbus_code(struct v4l2_subdev *sd,
-				 struct v4l2_subdev_state *sd_state,
-				 struct v4l2_subdev_mbus_code_enum *code)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	// code->code = lt6911uxe->cur_mode->code;
-	switch (code->index) {
-		case 0:
-			code->code = lt6911uxe->cur_mode->code;
-			break;
-		default:
-			return -EINVAL;
-	}
-	return 0;
-}
-
-static int lt6911uxe_enum_frame_size(struct v4l2_subdev *sd,
-				  struct v4l2_subdev_state *sd_state,
-				  struct v4l2_subdev_frame_size_enum *fse)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	fse->min_width = lt6911uxe->cur_mode->width;
-	fse->max_width = fse->min_width;
-	fse->min_height = lt6911uxe->cur_mode->height;
-	fse->max_height = fse->min_height;
-
-	return 0;
-}
-
-static int lt6911uxe_enum_frame_interval(struct v4l2_subdev *sd,
-		struct v4l2_subdev_state *sd_state,
-		struct v4l2_subdev_frame_interval_enum *fie)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	fie->interval.numerator = 1;
-	fie->interval.denominator = lt6911uxe->cur_mode->fps;
-
-	return 0;
-}
-
-static int lt6911uxe_g_mbus_config(struct v4l2_subdev *sd, unsigned int pad_id,
-				struct v4l2_mbus_config *config)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	// config->type = lt6911uxe->bus_cfg.bus_type;
-	config->type = V4L2_MBUS_CSI2_DPHY;
-	config->bus.mipi_csi2.num_data_lanes = lt6911uxe->cur_mode->lanes;
-
-	return 0;
-}
-
-static int lt6911uxe_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
-{
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-
-	lt6911uxe_update_pad_format(lt6911uxe->cur_mode,
-			v4l2_subdev_get_try_format(sd, fh->state, 0));
-
-	return 0;
-}
-
-// static long lt6911uxe_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
-// {
-// 	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-// 	return 0;
-// }
-
-#ifdef CONFIG_COMPAT
-// static long lt6911uxe_compat_ioctl32(struct v4l2_subdev *sd,
-// 				  unsigned int cmd, unsigned long arg)
-// {
-// 	// void __user *up = compat_ptr(arg);
-// 	return 0;
-// }
 #endif
 
-static const struct v4l2_subdev_internal_ops lt6911uxe_subdev_internal_ops = {
-	.open = lt6911uxe_open,
-};
-
-static const struct v4l2_subdev_video_ops lt6911uxe_video_ops = {
-	.s_stream = lt6911uxe_set_stream,
-	.g_frame_interval = lt6911uxe_g_frame_interval,
-	.g_input_status	= lt6911uxe_g_input_status,
-	.s_dv_timings	= lt6911uxe_s_dv_timings,
-	.g_dv_timings	= lt6911uxe_g_dv_timings,
-	.query_dv_timings	= lt6911uxe_query_dv_timings,
-};
-
-static const struct v4l2_subdev_pad_ops lt6911uxe_pad_ops = {
-	.set_fmt = lt6911uxe_set_format,
-	.get_fmt = lt6911uxe_get_format,
-	.enum_mbus_code = lt6911uxe_enum_mbus_code,
-	.enum_frame_size = lt6911uxe_enum_frame_size,
-	.enum_frame_interval = lt6911uxe_enum_frame_interval,
-	.get_mbus_config = lt6911uxe_g_mbus_config,
-};
-
-static struct v4l2_subdev_core_ops lt6911uxe_subdev_core_ops = {
-	.log_status	= lt6911uxe_log_status,
-	.subscribe_event	= lt6911uxe_subscribe_event,
-	.unsubscribe_event	= v4l2_event_subdev_unsubscribe,
-	// .ioctl = lt6911uxe_ioctl,
-#ifdef CONFIG_COMPAT
-	// .compat_ioctl32 = lt6911uxe_compat_ioctl32,
-#endif
-};
-
-static const struct v4l2_subdev_ops lt6911uxe_subdev_ops = {
-	.core = &lt6911uxe_subdev_core_ops,
-	.video = &lt6911uxe_video_ops,
-	.pad = &lt6911uxe_pad_ops,
-};
-
-static const struct media_entity_operations lt6911uxe_subdev_entity_ops = {
-	.link_validate = v4l2_subdev_link_validate,
-};
-
-static const struct v4l2_subdev_internal_ops lt6911uxe_internal_ops = {
-	.open = lt6911uxe_open,
-};
-
-static int lt6911uxe_identify_module(struct lt6911uxe_state *lt6911uxe)
+static int lt6911uxe_g_frame_interval(struct v4l2_subdev *sd,
+			struct v4l2_subdev_frame_interval *fi)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(&lt6911uxe->sd);
-	// struct i2c_client *client = lt6911uxe->i2c_client;
-	u16 val;
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	const struct lt6911uxe_mode *mode = lt6911uxe->cur_mode;
 
-	val = lt6911uxe_i2c_rd8(&lt6911uxe->sd, REG_CHIP_ID_H) << 8;
-	val |= lt6911uxe_i2c_rd8(&lt6911uxe->sd, REG_CHIP_ID_L);
+	mutex_lock(&lt6911uxe->confctl_mutex);
+	//fi->pad = 0;
+	fi->interval = mode->max_fps;
+	mutex_unlock(&lt6911uxe->confctl_mutex);
 
-	if (val != LT6911UXE_CHIP_ID) {
-		dev_err(&client->dev, "chip id mismatch: %x!=%x",
-			LT6911UXE_CHIP_ID, val);
-		return -ENXIO;
-	}
-	dev_info(&client->dev,
-		"Found lt6911uxe Bridge Chip, ID is 0x%x\n", val);
+	printk("%s, denominator：%d \n", __func__, fi->interval.denominator);
 	return 0;
 }
 
-static void lt6911uxe_remove(struct i2c_client *client)
+static void lt6911uxe_get_module_inf(struct lt6911uxe *lt6911uxe,
+				  struct esmodule_inf *inf)
 {
+	memset(inf, 0, sizeof(*inf));
+	strscpy(inf->base.sensor, LT6911UXE_NAME, sizeof(inf->base.sensor));
+	strscpy(inf->base.module, lt6911uxe->module_name, sizeof(inf->base.module));
+	strscpy(inf->base.lens, lt6911uxe->len_name, sizeof(inf->base.lens));
 }
 
-static int lt6911uxe_video_status_update(struct lt6911uxe_state *lt6911uxe)
+static long lt6911uxe_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(&lt6911uxe->sd);
-	u16 val = 0;
-	u8 int_event = 0;
-	u32 byte_clock = 0, pixel_clk = 0;
-	u32 htotal = 0, vtotal = 0;
-	u32 width = 0, height = 0;
-	u32 width2 = 0, format = 0;
-	u32 fps = 0, lanes = 4;
-	u8 fm0 = 0,  fm1 = 0, fm2 = 0;
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	long ret = 0;
+	struct esmodule_csi_dphy_param *dphy_param;
+	struct esmodule_capture_info  *capture_info;
 
-	/* Read interrupt event */
-	int_event = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			REG_INT_HDMI);
-	switch (int_event) {
-	case INT_HDMI_STABLE:
-		dev_info(&client->dev, "Video signal stable\n");
-
-		/* byte clock / MIPI clock */
-		fm2 = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			REG_FM1_FREQ_IN2);// & MASK_FMI_FREQ2;
-		fm1 = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			REG_FM1_FREQ_IN1);
-		fm0 = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			REG_FM1_FREQ_IN0);
-
-		byte_clock = (fm2<<16 | fm1<<8 | fm0) * 1000;
-
-		/* Pixel clock */
-		val =  lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			REG_PIX_CLK_IN2);
-		pixel_clk |= val << 16;
-		val =  lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			REG_PIX_CLK_IN1);
-		pixel_clk |= (val << 8);
-		val =  lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			REG_PIX_CLK_IN0);
-		pixel_clk |= val;
-		pixel_clk *= 1000;
-
-		htotal = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			 REG_H_TOTAL_H) << 8;
-		htotal |= lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			  REG_H_TOTAL_L);
-
-		/* video frame size */
-		vtotal = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			 REG_V_TOTAL_H) << 8;
-		vtotal |= lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			  REG_V_TOTAL_L);
-
-		width = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			 REG_H_ACTIVE_H) << 8;
-
-		width2 = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			  REG_H_ACTIVE_L);
-
-		width |= width2;
-
-		width = width << 1;
-
-		height = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			 REG_V_ACTIVE_H) << 8;
-		height |= lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			  REG_V_ACTIVE_L);
-
-		lanes = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			REG_MIPI_LANES);
-
-		format = lt6911uxe_i2c_rd8(&lt6911uxe->sd,
-			 REG_MIPI_FORMAT);
-
-		if (htotal && vtotal)
-			fps = pixel_clk / (htotal * vtotal);
-
-		lt6911uxe->cur_mode->height = height;
-		lt6911uxe->cur_mode->fps = fps;
-		// lt6911uxe->cur_mode->code = MEDIA_BUS_FMT_UYVY8_1X16;
-		lt6911uxe->cur_mode->code = MEDIA_BUS_FMT_RGB888_1X24;
-		if (lanes == 8) {
-			dev_dbg(&client->dev,  "Lane number:%u is unexpected.\n", lanes);
-			/* 4K60fps with 2 MIPI ports*/
-			if (width >= 3840)
-				lt6911uxe->cur_mode->width = width / 2; /* YUV422 */
-			else
-				lt6911uxe->cur_mode->width = width; /* YUV422 */
-			lt6911uxe->cur_mode->lanes = lanes / 2;
-			lt6911uxe->cur_mode->pixel_clk = byte_clock * 4;
-			lt6911uxe->cur_mode->byte_clk = byte_clock;
+	printk("%s, cmd:0x%x", __func__, cmd);
+	switch (cmd) {
+	case ESMODULE_GET_MODULE_INFO:
+		lt6911uxe_get_module_inf(lt6911uxe, (struct esmodule_inf *)arg);
+		break;
+	case ESMODULE_GET_HDMI_MODE:
+		*(int *)arg = ESMODULE_HDMIIN_MODE;
+		break;
+	case ESMODULE_SET_CSI_DPHY_PARAM:
+		dphy_param = (struct esmodule_csi_dphy_param *)arg;
+		if (dphy_param->vendor == 1) //PHY_VENDOR_SAMSUNG
+			es770x_dcphy_param = *dphy_param;
+		dev_dbg(&lt6911uxe->i2c_client->dev,
+			"sensor set dphy param\n");
+		break;
+	case ESMODULE_GET_CSI_DPHY_PARAM:
+		dphy_param = (struct esmodule_csi_dphy_param *)arg;
+		*dphy_param = es770x_dcphy_param;
+		dev_dbg(&lt6911uxe->i2c_client->dev,
+			"sensor get dphy param\n");
+		break;
+	case ESMODULE_GET_CAPTURE_MODE:
+		capture_info = (struct esmodule_capture_info *)arg;
+		if (lt6911uxe->dual_mipi_port) {
+			v4l2_dbg(1, debug, sd, "enable dual mipi mode\n");
+			capture_info->mode = ESMODULE_MULTI_DEV_COMBINE_ONE;
+			capture_info->multi_dev = lt6911uxe->multi_dev_info;
 		} else {
-			lt6911uxe->cur_mode->width = width;
-			lt6911uxe->cur_mode->lanes = 2;
-			// lt6911uxe->cur_mode->pixel_clk = 148500000;
-			lt6911uxe->cur_mode->pixel_clk = 742500000;
-			lt6911uxe->cur_mode->byte_clk = 163498000;
+			capture_info->mode = 0;
+			capture_info->multi_dev = lt6911uxe->multi_dev_info;
 		}
-		v4l2_subdev_notify_event(&lt6911uxe->sd,
-			&lt6911uxe_ev_source_change);
-
-		dev_dbg(&client->dev,  "Pixel Clk:%u, %lld\n",
-			pixel_clk, lt6911uxe->cur_mode->pixel_clk);
-		dev_dbg(&client->dev,
-			"width:%u, height:%u, fps:%u, lanes: %d\n",
-			lt6911uxe->cur_mode->width,
-			lt6911uxe->cur_mode->height,
-			lt6911uxe->cur_mode->fps,
-			lt6911uxe->cur_mode->lanes);
-	break;
-	case INT_HDMI_DISCONNECT:
-		lt6911uxe_stop_streaming(lt6911uxe);
-		lt6911uxe->cur_mode->width = 0;
-		lt6911uxe->cur_mode->height = 0;
-		lt6911uxe->cur_mode->fps = 60;
-		lt6911uxe->cur_mode->pixel_clk = 0;
-		// lt6911uxe->cur_mode->code = MEDIA_BUS_FMT_UYVY8_1X16;
-		lt6911uxe->cur_mode->code = MEDIA_BUS_FMT_RGB888_1X24;
-		lt6911uxe->cur_mode->byte_clk = 0;
-		lt6911uxe->cur_mode->lanes = 4;
-		v4l2_subdev_notify_event(&lt6911uxe->sd,
-			&lt6911uxe_ev_stream_end);
-
-		dev_info(&client->dev, "Video signal disconnected\n");
-	break;
-	default:
-		dev_dbg(&client->dev, "Unhandled video= 0x%02X\n", int_event);
-	return  -ENOLINK;
-	}
-
-	return 0;
-}
-
-static void lt6911uxe_audio_status_update(struct lt6911uxe_state *lt6911uxe)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(&lt6911uxe->sd);
-	u8 int_event;
-	int audio_fs = 0;
-
-	/* read interrupt event */
-	int_event = lt6911uxe_i2c_rd8(&lt6911uxe->sd, REG_INT_AUDIO);
-	dev_dbg(&client->dev, "Audio event:0x%02X\n", int_event);
-
-	switch (int_event) {
-	case INT_AUDIO_DISCONNECT:
-		dev_dbg(&client->dev, "Audio signal disconnected\n");
-		audio_fs = 0;
-		lt6911uxe->cur_mode->audio_sample_rate = 0;
-		break;
-
-	case AUDIO_SR_HIGH:
-	case AUDIO_SR_LOW:
-		audio_fs = lt6911uxe_get_audio_sampling_rate(lt6911uxe);
-		lt6911uxe->cur_mode->audio_sample_rate = audio_fs;
-		dev_dbg(&client->dev,
-			"Sampling rate changed: %d\n", audio_fs);
 		break;
 	default:
-		dev_dbg(&client->dev, "Unhandled audio= 0x%02X\n", int_event);
-		// use the default value for avoiding problem
-		lt6911uxe->cur_mode->audio_sample_rate = 0;
+		ret = -ENOIOCTLCMD;
 		break;
 	}
-
-	__v4l2_ctrl_s_ctrl(lt6911uxe->audio_present_ctrl,
-		(lt6911uxe->cur_mode->audio_sample_rate != 0));
-
-	if (lt6911uxe->cur_mode->audio_sample_rate)
-		__v4l2_ctrl_s_ctrl(lt6911uxe->audio_sampling_rate_ctrl,
-			lt6911uxe->cur_mode->audio_sample_rate);
-}
-
-static void  lt6911uxe_check_status(struct lt6911uxe_state *lt6911uxe)
-{
-	mutex_lock(&lt6911uxe->mutex);
-	lt6911uxe_ext_control(lt6911uxe, true);
-	lt6911uxe_video_status_update(lt6911uxe);
-	lt6911uxe_audio_status_update(lt6911uxe);
-	lt6911uxe_i2c_wr8(&lt6911uxe->sd, REG_INT_RESPOND, 1);
-	lt6911uxe_ext_control(lt6911uxe, false);
-	mutex_unlock(&lt6911uxe->mutex);
-}
-
-static irqreturn_t lt6911uxe_threaded_irq_fn(int irq, void *dev_id)
-{
-	struct v4l2_subdev *sd = dev_id;
-	struct lt6911uxe_state *lt6911uxe;
-
-	if (!sd) {
-		dev_err(NULL, "Invalid dev_id argument!\n");
-		return IRQ_NONE;
-	}
-
-	lt6911uxe = to_state(sd);
-	if (!lt6911uxe) {
-		dev_err(sd->dev, "Invalid lt6911uxe state argument!\n");
-		return IRQ_NONE;
-	}
-
-	dev_dbg(sd->dev, "%s in kthread %d\n", __func__, current->pid);
-	lt6911uxe_check_status(lt6911uxe);
-	return IRQ_HANDLED;
-}
-
-static struct lt6911uxe_platform_data lt6911uxe_pdata = {
-	.port = 1,
-	.lanes = 2,
-	.i2c_slave_address = 0x56,
-	.irq_pin = -1,
-	.irq_pin_name = "READY_STAT",
-	.irq_pin_flags = IRQF_TRIGGER_RISING
-		| IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
-	.suffix = 'a',
-	.reset_pin = -1,
-	.detect_pin = -1,
-	.gpios = {-1, 0, 0, 0},
-};
-
-static int lt6911uxe_probe(struct i2c_client *client)
-{
-	struct lt6911uxe_state *lt6911uxe;
-	struct v4l2_subdev *sd;
-	struct device *dev = &client->dev;
-	struct device_node *endpoint;
-	int ret;
-
-	if (!of_device_is_available(dev->of_node))
-		return -ENODEV;
-
-	lt6911uxe = devm_kzalloc(dev, sizeof(struct lt6911uxe_state),
-			     GFP_KERNEL);
-	if (!lt6911uxe)
-		return -ENOMEM;
-
-	lt6911uxe->cur_mode = devm_kzalloc(dev, sizeof(struct lt6911uxe_mode),
-	     GFP_KERNEL);
-	if (!lt6911uxe->cur_mode)
-		return -ENOMEM;
-
-	memset(lt6911uxe->cur_mode, 0, sizeof(struct lt6911uxe_mode));
-	lt6911uxe->cur_mode->width = 1920;
-	lt6911uxe->cur_mode->height = 1080;
-	// lt6911uxe->cur_mode->code = MEDIA_BUS_FMT_UYVY8_1X16,
-	lt6911uxe->cur_mode->code = MEDIA_BUS_FMT_RGB888_1X24,
-	lt6911uxe->cur_mode->lanes = 2;
-	lt6911uxe->cur_mode->fps = 60;
-	lt6911uxe->cur_mode->bpp = 8;
-	// lt6911uxe->cur_mode->pixel_clk = 297000000;
-	//lt6911uxe->cur_mode->byte_clk = (52125000 * 2); //168000000;
-	lt6911uxe->cur_mode->byte_clk = 163498000;
-	// lt6911uxe->cur_mode->pixel_clk = 148500000;
-	lt6911uxe->cur_mode->pixel_clk = 742500000;
-	//lt6911uxe->cur_mode->pixel_clk = lt6911uxe->cur_mode->byte_clk * 4;
-	lt6911uxe->cur_mode->audio_sample_rate = 48000;
-
-	//memcpy(lt6911uxe->platform_data, &lt6911uxe_pdata, sizeof(lt6911uxe_pdata));
-	client->dev.platform_data = (void *)&lt6911uxe_pdata;
-	lt6911uxe->platform_data = &lt6911uxe_pdata;
-
-	// lt6911uxe->platform_data = client->dev.platform_data;
-	if (lt6911uxe->platform_data == NULL) {
-		dev_err(&client->dev, "no platform data provided\n");
-		return -EINVAL;
-	}
-
-	ret = v4l2_fwnode_endpoint_parse(of_fwnode_handle(endpoint),
-		&lt6911uxe->bus_cfg);
-
-	lt6911uxe->i2c_client = client;
-	sd = &lt6911uxe->sd;
-	sd->dev = &client->dev;
-	v4l2_i2c_subdev_init(sd, client, &lt6911uxe_subdev_ops);
-	// v4l2_subdev_init(sd, &lt6911uxe_subdev_ops);
-
-	if (lt6911uxe->platform_data->suffix)
-		snprintf(lt6911uxe->sd.name,
-			sizeof(lt6911uxe->sd.name), "lt6911uxe %c",
-			lt6911uxe->platform_data->suffix);
-
-	mutex_init(&lt6911uxe->mutex);
-	if (-1 != lt6911uxe->platform_data->reset_pin)
-		if (!gpio_get_value(lt6911uxe->platform_data->reset_pin))
-			gpio_set_value(lt6911uxe->platform_data->reset_pin, 1);
-
-	if (-1 != lt6911uxe->platform_data->irq_pin) {
-		lt6911uxe->auxiliary_port = false;
-		dev_info(&client->dev, "Probing lt6911uxe chip...\n");
-
-		lt6911uxe_ext_control(lt6911uxe, true);
-		ret = lt6911uxe_identify_module(lt6911uxe);
-		if (ret) {
-			dev_err(&client->dev, "failed to find chip: %d", ret);
-			return ret;
-		}
-		lt6911uxe_ext_control(lt6911uxe, false);
-
-		ret = lt6911uxe_init_controls(lt6911uxe);
-		if (ret) {
-			dev_info(&client->dev,  "Could not init control %d!\n", ret);
-			goto probe_error_v4l2_ctrl_handler_free;
-		}
-
-		lt6911uxe->sd.internal_ops = &lt6911uxe_internal_ops;
-		lt6911uxe->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
-		lt6911uxe->sd.entity.ops = &lt6911uxe_subdev_entity_ops;
-		lt6911uxe->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
-		lt6911uxe->pad.flags = MEDIA_PAD_FL_SOURCE;
-		ret = media_entity_pads_init(&lt6911uxe->sd.entity, 1, &lt6911uxe->pad);
-		if (ret) {
-			dev_err(&client->dev, "Init entity pads failed:%d\n", ret);
-			goto probe_error_v4l2_ctrl_handler_free;
-		}
-
-		/* Setting irq */
-		ret = devm_gpio_request_one(&client->dev,
-				lt6911uxe->platform_data->irq_pin,
-				GPIOF_OUT_INIT_HIGH, "Interrupt signal");
-		if (ret) {
-			dev_err(&client->dev, "IRQ pin %d (name: %s) request failed! ret: %d\n",
-				lt6911uxe->platform_data->irq_pin,
-				lt6911uxe->platform_data->irq_pin_name, ret);
-			goto probe_error_v4l2_ctrl_handler_free;
-		}
-
-		ret = gpio_direction_input(lt6911uxe->platform_data->irq_pin);
-		if (ret) {
-			dev_err(&client->dev, "Set gpio pin %d direction input failed! ret: %d\n",
-				lt6911uxe->platform_data->irq_pin, ret);
-			goto probe_error_v4l2_ctrl_handler_free;
-		}
-
-		ret = devm_request_threaded_irq(&client->dev,
-				gpio_to_irq(lt6911uxe->platform_data->irq_pin),
-				NULL, lt6911uxe_threaded_irq_fn,
-				lt6911uxe->platform_data->irq_pin_flags,
-				lt6911uxe->platform_data->irq_pin_name, lt6911uxe);
-		if (ret) {
-			dev_err(&client->dev, "IRQ request failed! ret: %d\n", ret);
-			goto probe_error_v4l2_ctrl_handler_free;
-		}
-		/* Check the current status */
-		usleep_range(200000, 205000);
-		lt6911uxe_check_status(lt6911uxe);
-		/* Stop to transmit MIPI data firstly waiting for IPU ready */
-		lt6911uxe_stop_streaming(lt6911uxe);
-	} else {
-		/* 4K60fps mode, the setting needs to be fixed on 1920x2160@60fps*/
-		lt6911uxe->auxiliary_port = true;
-		// lt6911uxe->cur_mode->width = 1920,
-		// lt6911uxe->cur_mode->height = 2160,
-		// lt6911uxe->cur_mode->fps = 60,
-
-		ret = lt6911uxe_init_controls(lt6911uxe);
-		if (ret) {
-			dev_info(&client->dev,  "Could not init control %d!\n", ret);
-			goto probe_error_v4l2_ctrl_handler_free;
-		}
-
-		// lt6911uxe->sd.internal_ops = &lt6911uxe_internal_ops;
-		// lt6911uxe->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
-		lt6911uxe->sd.entity.ops = &lt6911uxe_subdev_entity_ops;
-		lt6911uxe->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
-		lt6911uxe->pad.flags = MEDIA_PAD_FL_SOURCE;
-		ret = media_entity_pads_init(&lt6911uxe->sd.entity, 1, &lt6911uxe->pad);
-		if (ret) {
-			dev_err(&client->dev, "Init entity pads failed:%d\n", ret);
-			goto probe_error_v4l2_ctrl_handler_free;
-		}
-	}
-
-	lt6911uxe->sd.dev = &client->dev;
-	lt6911uxe->sd.internal_ops = &lt6911uxe_subdev_internal_ops;
-	lt6911uxe->sd.flags |=
-			V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
-	ret = v4l2_async_register_subdev_sensor(sd);
-	// ret = v4l2_async_register_subdev(sd);
-	// ret = v4l2_device_register_subdev(sd->v4l2_dev, sd);
-
-	if (ret < 0) {
-		dev_err(&client->dev, "failed to register V4L2 subdev: %d",
-			ret);
-		goto probe_error_media_entity_cleanup;
-	}
-
-	/*
-	 * Device is already turned on by i2c-core with ACPI domain PM.
-	 * Enable runtime PM and turn off the device.
-	 */
-	pm_runtime_set_active(&client->dev);
-	pm_runtime_enable(&client->dev);
-	pm_runtime_idle(&client->dev);
-	// dev_info(&client->dev, "End to probe lt6911uxe Bridge Chip.\n");
-	// dev_info(&client->dev, "%s Probe Succeeded", lt6911uxe->sd.name);
-	// printk("sjfa End to probe lt6911uxe Bridge Chip.\n");
-	printk("%s Probe Succeeded", lt6911uxe->sd.name);
-	return 0;
-
-probe_error_media_entity_cleanup:
-	media_entity_cleanup(&lt6911uxe->sd.entity);
-
-probe_error_v4l2_ctrl_handler_free:
-	v4l2_ctrl_handler_free(lt6911uxe->sd.ctrl_handler);
-	mutex_destroy(&lt6911uxe->mutex);
-	dev_err(&client->dev, "%s Probe Failed", lt6911uxe->sd.name);
 
 	return ret;
 }
 
-static int lt6911uxe_suspend(struct device *dev)
+static int lt6911uxe_s_power(struct v4l2_subdev *sd, int on)
 {
-	struct i2c_client *client = to_i2c_client(dev);
-	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	int ret = 0;
 
-	if (-1 != lt6911uxe->platform_data->reset_pin)
-		if (gpio_get_value(lt6911uxe->platform_data->reset_pin))
-			gpio_set_value(lt6911uxe->platform_data->reset_pin, 0);
+	mutex_lock(&lt6911uxe->confctl_mutex);
 
-	mutex_lock(&lt6911uxe->mutex);
-	if (lt6911uxe->streaming)
-		lt6911uxe_stop_streaming(lt6911uxe);
+	if (lt6911uxe->power_on == !!on) {
+		v4l2_err(sd, "%s, power_on : %d \n", __func__, on);
+		goto unlock_and_return;
+	}
 
-	mutex_unlock(&lt6911uxe->mutex);
-	dev_dbg(sd->dev, "suspend streaming...\n");
-	return 0;
+	if (on)
+		lt6911uxe->power_on = true;
+	else
+		lt6911uxe->power_on = false;
+
+unlock_and_return:
+	mutex_unlock(&lt6911uxe->confctl_mutex);
+
+	return ret;
 }
 
-static int lt6911uxe_resume(struct device *dev)
+#ifdef CONFIG_COMPAT
+static long lt6911uxe_compat_ioctl32(struct v4l2_subdev *sd,
+				  unsigned int cmd, unsigned long arg)
 {
-	struct i2c_client *client = to_i2c_client(dev);
-	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-	struct lt6911uxe_state *lt6911uxe = to_state(sd);
-	int ret;
+	void __user *up = compat_ptr(arg);
+	struct esmodule_inf *inf;
+	long ret;
+	int *seq;
+	struct esmodule_csi_dphy_param *dphy_param;
+	struct esmodule_capture_info  *capture_info;
 
-	if (-1 != lt6911uxe->platform_data->reset_pin)
-		if (!gpio_get_value(lt6911uxe->platform_data->reset_pin))
-			gpio_set_value(lt6911uxe->platform_data->reset_pin, 1);
-
-	usleep_range(200000, 205000);
-	//recheck the current HDMI status in case changed
-	lt6911uxe_check_status(lt6911uxe);
-
-	mutex_lock(&lt6911uxe->mutex);
-	if (lt6911uxe->streaming) {
-		ret = lt6911uxe_start_streaming(lt6911uxe);
-		if (ret) {
-			lt6911uxe->streaming = false;
-			lt6911uxe_stop_streaming(lt6911uxe);
-			mutex_unlock(&lt6911uxe->mutex);
+	printk("%s, cmd:0x%x", __func__, cmd);
+	switch (cmd) {
+	case ESMODULE_GET_MODULE_INFO:
+		inf = kzalloc(sizeof(*inf), GFP_KERNEL);
+		if (!inf) {
+			ret = -ENOMEM;
 			return ret;
 		}
+
+		ret = lt6911uxe_ioctl(sd, cmd, inf);
+		if (!ret) {
+			ret = copy_to_user(up, inf, sizeof(*inf));
+			if (ret)
+				ret = -EFAULT;
+		}
+		kfree(inf);
+		break;
+	case ESMODULE_GET_HDMI_MODE:
+		seq = kzalloc(sizeof(*seq), GFP_KERNEL);
+		if (!seq) {
+			ret = -ENOMEM;
+			return ret;
+		}
+
+		ret = lt6911uxe_ioctl(sd, cmd, seq);
+		if (!ret) {
+			ret = copy_to_user(up, seq, sizeof(*seq));
+			if (ret)
+				ret = -EFAULT;
+		}
+		kfree(seq);
+		break;
+	case ESMODULE_SET_CSI_DPHY_PARAM:
+		dphy_param = kzalloc(sizeof(*dphy_param), GFP_KERNEL);
+		if (!dphy_param) {
+			ret = -ENOMEM;
+			return ret;
+		}
+
+		ret = copy_from_user(dphy_param, up, sizeof(*dphy_param));
+		if (!ret)
+			ret = lt6911uxe_ioctl(sd, cmd, dphy_param);
+		else
+			ret = -EFAULT;
+		kfree(dphy_param);
+		break;
+	case ESMODULE_GET_CSI_DPHY_PARAM:
+		dphy_param = kzalloc(sizeof(*dphy_param), GFP_KERNEL);
+		if (!dphy_param) {
+			ret = -ENOMEM;
+			return ret;
+		}
+
+		ret = lt6911uxe_ioctl(sd, cmd, dphy_param);
+		if (!ret) {
+			ret = copy_to_user(up, dphy_param, sizeof(*dphy_param));
+			if (ret)
+				ret = -EFAULT;
+		}
+		kfree(dphy_param);
+		break;
+	case ESMODULE_GET_CAPTURE_MODE:
+		capture_info = kzalloc(sizeof(*capture_info), GFP_KERNEL);
+		if (!capture_info) {
+			ret = -ENOMEM;
+			return ret;
+		}
+
+		ret = lt6911uxe_ioctl(sd, cmd, capture_info);
+		if (!ret) {
+			ret = copy_to_user(up, capture_info, sizeof(*capture_info));
+			if (ret)
+				ret = -EFAULT;
+		}
+		kfree(capture_info);
+		break;
+	default:
+		ret = -ENOIOCTLCMD;
+		break;
 	}
-	mutex_unlock(&lt6911uxe->mutex);
-	dev_dbg(sd->dev, "resume streaming...\n");
+
+	return ret;
+}
+#endif
+
+#ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
+static int lt6911uxe_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+{
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+	struct v4l2_mbus_framefmt *try_fmt =
+				v4l2_subdev_get_try_format(sd, fh->state, 0);
+	const struct lt6911uxe_mode *def_mode = &lt6911uxe->support_modes[0];
+
+	mutex_lock(&lt6911uxe->confctl_mutex);
+	/* Initialize try_fmt */
+	try_fmt->width = def_mode->width;
+	try_fmt->height = def_mode->height;
+	try_fmt->code = LT6911UXE_MEDIA_BUS_FMT;
+	try_fmt->field = V4L2_FIELD_NONE;
+	mutex_unlock(&lt6911uxe->confctl_mutex);
+
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
+static const struct v4l2_subdev_internal_ops lt6911uxe_internal_ops = {
+	.open = lt6911uxe_open,
+};
+#endif
+
+static const struct v4l2_subdev_core_ops lt6911uxe_core_ops = {
+	.s_power = lt6911uxe_s_power,
+	.interrupt_service_routine = lt6911uxe_isr,
+	.subscribe_event = lt6911uxe_subscribe_event,
+	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
+	.ioctl = lt6911uxe_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl32 = lt6911uxe_compat_ioctl32,
+#endif
+};
+
+static const struct v4l2_subdev_video_ops lt6911uxe_video_ops = {
+	.g_input_status = lt6911uxe_g_input_status,
+	.s_dv_timings = lt6911uxe_s_dv_timings,
+	.g_dv_timings = lt6911uxe_g_dv_timings,
+	.query_dv_timings = lt6911uxe_query_dv_timings,
+	.s_stream = lt6911uxe_s_stream,
+	.g_frame_interval = lt6911uxe_g_frame_interval,
+};
+
+static const struct v4l2_subdev_pad_ops lt6911uxe_pad_ops = {
+	.enum_mbus_code = lt6911uxe_enum_mbus_code,
+	.enum_frame_size = lt6911uxe_enum_frame_sizes,
+	.enum_frame_interval = lt6911uxe_enum_frame_interval,
+	.set_fmt = lt6911uxe_set_fmt,
+	.get_fmt = lt6911uxe_get_fmt,
+	.enum_dv_timings = lt6911uxe_enum_dv_timings,
+	.dv_timings_cap = lt6911uxe_dv_timings_cap,
+	.get_mbus_config = lt6911uxe_g_mbus_config,
+};
+
+static const struct v4l2_subdev_ops lt6911uxe_ops = {
+	.core = &lt6911uxe_core_ops,
+	.video = &lt6911uxe_video_ops,
+	.pad = &lt6911uxe_pad_ops,
+};
+
+static const struct v4l2_ctrl_config lt6911uxe_ctrl_audio_sampling_rate = {
+	.id = LT6911UXE_CID_AUDIO_SAMPLING_RATE,
+	.name = "Audio sampling rate",
+	.type = V4L2_CTRL_TYPE_INTEGER,
+	.min = 0,
+	.max = 768000,
+	.step = 1,
+	.def = 0,
+	.flags = V4L2_CTRL_FLAG_READ_ONLY,
+};
+
+static const struct v4l2_ctrl_config lt6911uxe_ctrl_audio_present = {
+	.id = LT6911UXE_CID_AUDIO_PRESENT,
+	.name = "Audio present",
+	.type = V4L2_CTRL_TYPE_BOOLEAN,
+	.min = 0,
+	.max = 1,
+	.step = 1,
+	.def = 0,
+	.flags = V4L2_CTRL_FLAG_READ_ONLY,
+};
+
+static void lt6911uxe_reset(struct lt6911uxe *lt6911uxe)
+{
+	gpiod_set_value(lt6911uxe->reset_gpio, 1);
+	usleep_range(2000, 2100);
+	gpiod_set_value(lt6911uxe->reset_gpio, 0);
+	usleep_range(120*1000, 121*1000);
+	gpiod_set_value(lt6911uxe->reset_gpio, 1);
+	usleep_range(300*1000, 310*1000);
+}
+
+static int lt6911uxe_init_v4l2_ctrls(struct lt6911uxe *lt6911uxe)
+{
+	const struct lt6911uxe_mode *mode;
+	struct v4l2_subdev *sd;
+	int ret;
+
+	mode = lt6911uxe->cur_mode;
+	sd = &lt6911uxe->sd;
+	ret = v4l2_ctrl_handler_init(&lt6911uxe->hdl, 5);
+	if (ret) {
+		v4l2_err(sd, "%s, ret:%d", __func__, ret);
+		return ret;
+	}
+
+	lt6911uxe->link_freq = v4l2_ctrl_new_int_menu(&lt6911uxe->hdl, NULL,
+			V4L2_CID_LINK_FREQ,
+			ARRAY_SIZE(link_freq_menu_items) - 1, 0,
+			link_freq_menu_items);
+	lt6911uxe->pixel_rate = v4l2_ctrl_new_std(&lt6911uxe->hdl, NULL,
+			V4L2_CID_PIXEL_RATE,
+			0, LT6911UXE_PIXEL_RATE, 1, LT6911UXE_PIXEL_RATE);
+
+	lt6911uxe->detect_tx_5v_ctrl = v4l2_ctrl_new_std(&lt6911uxe->hdl,
+			NULL, V4L2_CID_DV_RX_POWER_PRESENT,
+			0, 1, 0, 0);
+
+	lt6911uxe->audio_sampling_rate_ctrl =
+		v4l2_ctrl_new_custom(&lt6911uxe->hdl,
+				&lt6911uxe_ctrl_audio_sampling_rate, NULL);
+	lt6911uxe->audio_present_ctrl = v4l2_ctrl_new_custom(&lt6911uxe->hdl,
+			&lt6911uxe_ctrl_audio_present, NULL);
+
+	sd->ctrl_handler = &lt6911uxe->hdl;
+	if (lt6911uxe->hdl.error) {
+		ret = lt6911uxe->hdl.error;
+		v4l2_err(sd, "cfg v4l2 ctrls failed! ret:%d\n", ret);
+		return ret;
+	}
+
+	__v4l2_ctrl_s_ctrl(lt6911uxe->link_freq, mode->mipi_freq_idx);
+	__v4l2_ctrl_s_ctrl_int64(lt6911uxe->pixel_rate, LT6911UXE_PIXEL_RATE);
+
+	if (lt6911uxe_update_controls(sd)) {
+		ret = -ENODEV;
+		v4l2_err(sd, "update v4l2 ctrls failed! ret:%d\n", ret);
+		return ret;
+	}
+
 	return 0;
 }
 
-static const struct dev_pm_ops lt6911uxe_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(lt6911uxe_suspend, lt6911uxe_resume)
-};
+#ifdef CONFIG_OF
+static int lt6911uxe_probe_of(struct lt6911uxe *lt6911uxe)
+{
+	struct device *dev = &lt6911uxe->i2c_client->dev;
+	struct device_node *node = dev->of_node;
+	struct device_node *ep;
+	int ret;
 
-static const struct i2c_device_id lt6911uxe_id_table[] = {
-	{ "lt6911uxe", 0 },
-	{ /* sentinel */ },
-};
-MODULE_DEVICE_TABLE(i2c, lt6911uxe_id_table);
+	ret = of_property_read_u32(node, "eswin,camera-module-index",
+			&lt6911uxe->module_index);
+	ret |= of_property_read_string(node, "eswin,camera-module-facing",
+			&lt6911uxe->module_facing);
+	ret |= of_property_read_string(node, "eswin,camera-module-name",
+			&lt6911uxe->module_name);
+	ret |= of_property_read_string(node, "eswin,camera-module-lens-name",
+			&lt6911uxe->len_name);
+	if (ret) {
+		dev_err(dev, "could not get module information!\n");
+		return -EINVAL;
+	}
 
-static struct i2c_driver lt6911uxe_i2c_driver = {
+	//lt6911uxe->power_gpio = devm_gpiod_get_optional(dev, "power",
+	//		GPIOD_OUT_LOW);
+	//if (IS_ERR(lt6911uxe->power_gpio)) {
+	//	dev_err(dev, "failed to get power gpio\n");
+	//	ret = PTR_ERR(lt6911uxe->power_gpio);
+	//	return ret;
+	//}
+
+	lt6911uxe->reset_gpio = devm_gpiod_get_optional(dev, "reset",
+			GPIOD_OUT_HIGH);
+	if (IS_ERR(lt6911uxe->reset_gpio)) {
+		dev_err(dev, "failed to get reset gpio\n");
+		ret = PTR_ERR(lt6911uxe->reset_gpio);
+		return ret;
+	}
+
+	lt6911uxe->plugin_det_gpio = devm_gpiod_get_optional(dev, "plugin-det",
+			GPIOD_IN);
+	if (IS_ERR(lt6911uxe->plugin_det_gpio)) {
+		dev_err(dev, "failed to get plugin det gpio\n");
+		ret = PTR_ERR(lt6911uxe->plugin_det_gpio);
+		return ret;
+	}
+
+	/*
+	ep = of_graph_get_next_endpoint(dev->of_node, NULL);
+	if (!ep) {
+		dev_err(dev, "missing endpoint node\n");
+		return -EINVAL;
+	}
+
+	ret = v4l2_fwnode_endpoint_parse(of_fwnode_handle(ep),
+					&lt6911uxe->bus_cfg);
+	if (ret) {
+		dev_err(dev, "failed to parse endpoint\n");
+		goto put_node;
+	}*/
+
+	lt6911uxe->support_modes = supported_modes_dphy;
+	lt6911uxe->cfg_num = ARRAY_SIZE(supported_modes_dphy);
+
+	lt6911uxe->xvclk = devm_clk_get(dev, "xvclk");
+	if (IS_ERR(lt6911uxe->xvclk)) {
+		dev_err(dev, "failed to get xvclk\n");
+		ret = -EINVAL;
+		goto put_node;
+	}
+
+	ret = clk_prepare_enable(lt6911uxe->xvclk);
+	if (ret) {
+		dev_err(dev, "Failed! to enable xvclk\n");
+		goto put_node;
+	}
+
+	lt6911uxe->enable_hdcp = false;
+
+	//gpiod_set_value(lt6911uxe->power_gpio, 1);
+	lt6911uxe_reset(lt6911uxe);
+	lt6911uxe_hdmi_detect(lt6911uxe);
+
+	ret = 0;
+
+put_node:
+	of_node_put(ep);
+	return ret;
+}
+#else
+static inline int lt6911uxe_probe_of(struct lt6911uxe *state)
+{
+	return -ENODEV;
+}
+#endif
+static int lt6911uxe_check_chip_id(struct lt6911uxe *lt6911uxe)
+{
+	struct device *dev = &lt6911uxe->i2c_client->dev;
+	struct v4l2_subdev *sd = &lt6911uxe->sd;
+	u8 id_h, id_l;
+	u32 chipid;
+	int ret = 0;
+
+	lt6911uxe_i2c_enable(sd);
+	id_l  = i2c_rd8(sd, CHIPID_REGL);
+	id_h  = i2c_rd8(sd, CHIPID_REGH);
+	lt6911uxe_i2c_disable(sd);
+
+	chipid = (id_h << 8) | id_l;
+	if (chipid != LT6911UXE_CHIPID) {
+		dev_err(dev, "chipid err, read:%#x, expect:%#x\n",
+				chipid, LT6911UXE_CHIPID);
+		return -EINVAL;
+	}
+	dev_info(dev, "check chipid ok, id:%#x", chipid);
+
+	return ret;
+}
+
+static int lt6911uxe_get_multi_dev_info(struct lt6911uxe *lt6911uxe)
+{
+	struct device *dev = &lt6911uxe->i2c_client->dev;
+	struct device_node *node = dev->of_node;
+	struct device_node *multi_info_np;
+
+	lt6911uxe->dual_mipi_port = false;
+	multi_info_np = of_get_child_by_name(node, "multi-dev-info");
+	if (!multi_info_np) {
+		dev_info(dev, "failed to get multi dev info\n");
+		return -EINVAL;
+	}
+
+	of_property_read_u32(multi_info_np, "dev-idx-l",
+			&lt6911uxe->multi_dev_info.dev_idx[0]);
+	of_property_read_u32(multi_info_np, "dev-idx-r",
+			&lt6911uxe->multi_dev_info.dev_idx[1]);
+	of_property_read_u32(multi_info_np, "combine-idx",
+			&lt6911uxe->multi_dev_info.combine_idx[0]);
+	of_property_read_u32(multi_info_np, "pixel-offset",
+			&lt6911uxe->multi_dev_info.pixel_offset);
+	of_property_read_u32(multi_info_np, "dev-num",
+			&lt6911uxe->multi_dev_info.dev_num);
+
+	lt6911uxe->dual_mipi_port = true;
+	dev_info(dev,
+		"multi dev left: mipi%d, multi dev right: mipi%d, combile mipi%d, dev num: %d\n",
+		lt6911uxe->multi_dev_info.dev_idx[0], lt6911uxe->multi_dev_info.dev_idx[1],
+		lt6911uxe->multi_dev_info.combine_idx[0], lt6911uxe->multi_dev_info.dev_num);
+
+	return 0;
+}
+
+static int lt6911uxe_probe(struct i2c_client *client)
+{
+	struct v4l2_dv_timings default_timing =
+				V4L2_DV_BT_CEA_640X480P59_94;
+	struct lt6911uxe *lt6911uxe;
+	struct v4l2_subdev *sd;
+	struct device *dev = &client->dev;
+	char facing[2];
+	int err;
+
+	dev_info(dev, "lt6911 driver version: %02x.%02x.%02x",
+		DRIVER_VERSION >> 16,
+		(DRIVER_VERSION & 0xff00) >> 8,
+		DRIVER_VERSION & 0x00ff);
+
+	lt6911uxe = devm_kzalloc(dev, sizeof(struct lt6911uxe), GFP_KERNEL);
+	if (!lt6911uxe)
+		return -ENOMEM;
+
+	sd = &lt6911uxe->sd;
+	lt6911uxe->i2c_client = client;
+	lt6911uxe->mbus_fmt_code = LT6911UXE_MEDIA_BUS_FMT;
+	lt6911uxe->auxiliary_port = false;
+
+	err = lt6911uxe_probe_of(lt6911uxe);
+	if (err) {
+		v4l2_err(sd, "lt6911uxe_parse_of failed! err:%d\n", err);
+		return err;
+	}
+
+	lt6911uxe->timings = default_timing;
+	lt6911uxe->cur_mode = &lt6911uxe->support_modes[5];		// 1920*1080
+
+	err = lt6911uxe_get_multi_dev_info(lt6911uxe);
+	if (err)
+		v4l2_info(sd, "get multi dev info failed, not use dual mipi mode\n");
+
+	err = lt6911uxe_check_chip_id(lt6911uxe);
+	if (err < 0)
+		return err;
+
+	mutex_init(&lt6911uxe->confctl_mutex);
+	err = lt6911uxe_init_v4l2_ctrls(lt6911uxe);
+	if (err)
+		goto err_free_hdl;
+
+	client->flags |= I2C_CLIENT_SCCB;
+#ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
+	v4l2_i2c_subdev_init(sd, client, &lt6911uxe_ops);
+	sd->internal_ops = &lt6911uxe_internal_ops;
+	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
+#endif
+
+#if defined(CONFIG_MEDIA_CONTROLLER)
+	lt6911uxe->pad.flags = MEDIA_PAD_FL_SOURCE;
+	sd->entity.function = MEDIA_ENT_F_CAM_SENSOR;
+	err = media_entity_pads_init(&sd->entity, 1, &lt6911uxe->pad);
+	if (err < 0) {
+		v4l2_err(sd, "media entity init failed! err:%d\n", err);
+		goto err_free_hdl;
+	}
+#endif
+	memset(facing, 0, sizeof(facing));
+	if (strcmp(lt6911uxe->module_facing, "back") == 0)
+		facing[0] = 'b';
+	else
+		facing[0] = 'f';
+
+	snprintf(sd->name, sizeof(sd->name), "m%02d_%s_%s %s",
+		 lt6911uxe->module_index, facing,
+		 LT6911UXE_NAME, dev_name(sd->dev));
+	err = v4l2_async_register_subdev_sensor(sd);
+	if (err < 0) {
+		v4l2_err(sd, "v4l2 register subdev failed! err:%d\n", err);
+		goto err_clean_entity;
+	}
+
+	INIT_DELAYED_WORK(&lt6911uxe->delayed_work_hotplug,
+			lt6911uxe_delayed_work_hotplug);
+	INIT_DELAYED_WORK(&lt6911uxe->delayed_work_res_change,
+			lt6911uxe_delayed_work_res_change);
+
+	// modify by sjfa begin
+	v4l2_info(sd, "i2c_client->irq : %d!\n", lt6911uxe->i2c_client->irq);
+	lt6911uxe->i2c_client->irq = 0;
+	// modify by sjfa end
+	if (lt6911uxe->i2c_client->irq) {
+		v4l2_info(sd, "cfg lt6911uxe irq!\n");
+		err = devm_request_threaded_irq(dev,
+				lt6911uxe->i2c_client->irq,
+				NULL, lt6911uxe_res_change_irq_handler,
+				IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+				"lt6911uxe", lt6911uxe);
+		if (err) {
+			v4l2_err(sd, "request irq failed! err:%d\n", err);
+			goto err_work_queues;
+		}
+	} else {
+		v4l2_info(sd, "no irq, cfg poll!\n");
+		INIT_WORK(&lt6911uxe->work_i2c_poll, lt6911uxe_work_i2c_poll);
+		timer_setup(&lt6911uxe->timer, lt6911uxe_irq_poll_timer, 0);
+		lt6911uxe->timer.expires = jiffies +
+				       msecs_to_jiffies(POLL_INTERVAL_MS);
+		add_timer(&lt6911uxe->timer);
+	}
+
+	lt6911uxe->plugin_irq = gpiod_to_irq(lt6911uxe->plugin_det_gpio);
+	if (lt6911uxe->plugin_irq < 0)
+		dev_err(dev, "failed to get plugin det irq, maybe no use\n");
+
+	err = devm_request_threaded_irq(dev, lt6911uxe->plugin_irq, NULL,
+			plugin_detect_irq_handler, IRQF_TRIGGER_FALLING |
+			IRQF_TRIGGER_RISING | IRQF_ONESHOT, "lt6911uxe",
+			lt6911uxe);
+	if (err)
+		dev_err(dev, "failed to register plugin det irq (%d), maybe no use\n", err);
+
+	err = v4l2_ctrl_handler_setup(sd->ctrl_handler);
+	if (err) {
+		v4l2_err(sd, "v4l2 ctrl handler setup failed! err:%d\n", err);
+		goto err_work_queues;
+	}
+	enable_stream(sd, false);
+	v4l2_info(sd, "%s found @ 0x%x (%s)\n", client->name,
+			client->addr << 1, client->adapter->name);
+
+	lt6911_upgrade_init(client, lt6911uxe->reset_gpio);
+
+	return 0;
+
+err_work_queues:
+	if (!lt6911uxe->i2c_client->irq)
+		flush_work(&lt6911uxe->work_i2c_poll);
+	cancel_delayed_work(&lt6911uxe->delayed_work_hotplug);
+	cancel_delayed_work(&lt6911uxe->delayed_work_res_change);
+err_clean_entity:
+#if defined(CONFIG_MEDIA_CONTROLLER)
+	media_entity_cleanup(&sd->entity);
+#endif
+err_free_hdl:
+	v4l2_ctrl_handler_free(&lt6911uxe->hdl);
+	mutex_destroy(&lt6911uxe->confctl_mutex);
+	return err;
+}
+
+static void lt6911uxe_remove(struct i2c_client *client)
+{
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct lt6911uxe *lt6911uxe = to_lt6911uxe(sd);
+
+	if (!lt6911uxe->i2c_client->irq) {
+		del_timer_sync(&lt6911uxe->timer);
+		flush_work(&lt6911uxe->work_i2c_poll);
+	}
+	cancel_delayed_work_sync(&lt6911uxe->delayed_work_hotplug);
+	cancel_delayed_work_sync(&lt6911uxe->delayed_work_res_change);
+	v4l2_async_unregister_subdev(sd);
+	v4l2_device_unregister_subdev(sd);
+#if defined(CONFIG_MEDIA_CONTROLLER)
+	media_entity_cleanup(&sd->entity);
+#endif
+	v4l2_ctrl_handler_free(&lt6911uxe->hdl);
+	mutex_destroy(&lt6911uxe->confctl_mutex);
+	clk_disable_unprepare(lt6911uxe->xvclk);
+}
+
+#if IS_ENABLED(CONFIG_OF)
+static const struct of_device_id lt6911uxe_of_match[] = {
+	{ .compatible = "lontium,lt6911uxe" },
+	{},
+};
+MODULE_DEVICE_TABLE(of, lt6911uxe_of_match);
+#endif
+
+static struct i2c_driver lt6911uxe_driver = {
 	.driver = {
-		.name = "lt6911uxe",
-		.pm = &lt6911uxe_pm_ops,
+		.name = LT6911UXE_NAME,
+		.of_match_table = of_match_ptr(lt6911uxe_of_match),
 	},
 	.probe = lt6911uxe_probe,
 	.remove = lt6911uxe_remove,
-	.id_table = lt6911uxe_id_table,
 };
 
-module_i2c_driver(lt6911uxe_i2c_driver);
+static int __init lt6911uxe_driver_init(void)
+{
+	return i2c_add_driver(&lt6911uxe_driver);
+}
 
-MODULE_AUTHOR("Fu Wei <wei.a.fu@intel.com>");
-MODULE_DESCRIPTION("lt6911uxe HDMI to MIPI Bridge Driver");
-MODULE_LICENSE("GPL v2");
+static void __exit lt6911uxe_driver_exit(void)
+{
+	i2c_del_driver(&lt6911uxe_driver);
+}
+
+device_initcall_sync(lt6911uxe_driver_init);
+module_exit(lt6911uxe_driver_exit);
+
+MODULE_DESCRIPTION("Lontium lt6911uxe HDMI to CSI-2 bridge driver");
+MODULE_LICENSE("GPL");

@@ -254,8 +254,8 @@ static int eswin_fan_control_write_pwm(
 	struct eswin_fan_control_data *ctl = dev_get_drvdata(dev);
 	switch (attr) {
 	case hwmon_pwm_input:
-		if ((val < 10) || (val > 99)) {
-			dev_err(dev,"%s():line%d pwm range is 10 to 99, val=%ld\n",
+		if ((val < 0) || (val > 100)) {
+			dev_err(dev,"%s():line%d pwm range is 0 to 100, val=%ld\n",
 				__func__, __LINE__, val);
 			return -EINVAL;
 		} else {
@@ -541,12 +541,25 @@ static int eswin_fan_control_probe(struct platform_device *pdev)
 {
 	struct eswin_fan_control_data *ctl = NULL;
 	const struct of_device_id *id = NULL;
-	const char *name = "eswin_fan_control";
+	const char *name = NULL;
 	struct pwm_state state;
 	struct pwm_args pwm_args;
 	struct fwnode_handle *fwnode = NULL;
 	int ret = -1;
 	int idx = 0;
+	u32 numa_id = 0;
+
+	ret = of_property_read_u32(pdev->dev.of_node, "numa-node-id", &numa_id);
+	if(ret) {
+		dev_warn(&pdev->dev, "%s():line%d could not get numa-node-id\n",
+			__func__, __LINE__);
+		numa_id = 0;
+	}
+	if (numa_id == 0) {
+		name = "eswin_fan_control";
+	} else {
+		name = "d1_eswin_fan_control";
+	}
 
 	id = of_match_node(eswin_fan_control_of_match, pdev->dev.of_node);
 	if (!id) {
@@ -770,7 +783,7 @@ static SIMPLE_DEV_PM_OPS(fan_control_pm_ops, eswin_fan_control_suspend, eswin_fa
 static struct platform_driver eswin_fan_control_driver = {
 	.driver = {
 		.name = "eswin_fan_control_driver",
-		.pm = &fan_control_pm_ops,
+		.pm = pm_sleep_ptr(&fan_control_pm_ops),
 		.of_match_table = eswin_fan_control_of_match,
 	},
 	.probe = eswin_fan_control_probe,

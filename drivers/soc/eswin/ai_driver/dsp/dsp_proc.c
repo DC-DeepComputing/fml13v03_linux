@@ -73,7 +73,7 @@ static int stats_show(struct seq_file *m, void *p)
 			}
 			memcpy((void *)&perf_info, dsp->perf_reg_base, sizeof(es_dsp_perf_info));
 			seq_printf( m, "dsp%d %llu %llu\n",j*dsp_cnt + i, ktime_get_real_ns(),
-			            (perf_info.total_ran_time * 1000) /24);
+			            (perf_info.total_ran_time * 10000) / 495); // timer3 channel 7 clk 49.5MHz.
 		}
 	}
 	return 0;
@@ -252,12 +252,9 @@ static int info_show(struct seq_file *m, void *p)
 			stats = dsp->stats;
 			ts = ns_to_timespec64(stats->last_task_time);
 			seq_printf(
-				m,
-				"\t%-8d\t %-8d\t %-13d\t %-13d\t %-16d\t %-15d\t %-15d\t %-20d\t %lldms%ldns\n",
-				j, i, stats->total_int_cnt,
-				stats->send_to_dsp_cnt, stats->total_ok_cnt,
-				stats->total_failed_cnt,
-				stats->task_timeout_cnt, dsp->wait_running,
+				m, "\t%-8d\t %-8d\t %-13u\t %-13u\t %-16u\t %-15u\t %-15u\t %-20d\t %lldms%ldns\n",
+				j, i, stats->total_int_cnt, stats->send_to_dsp_cnt, stats->total_ok_cnt,
+				stats->total_failed_cnt, stats->task_timeout_cnt, dsp->wait_running,
 				ts.tv_sec * 1000, ts.tv_nsec);
 		}
 	}
@@ -282,7 +279,7 @@ static int info_show(struct seq_file *m, void *p)
 			} else {
 				seq_printf(
 					m,
-					"\t%-8d\t %-8d\t %-8d\t %-8d\t %-12d\t %-12d\n",
+					"\t%-8d\t %-8d\t %-8u\t %-8u\t %-12u\t %-12u\n",
 					j, i, perf_info.task_cnt,
 					perf_info.invalid_cmd_cnt,
 					perf_info.send_prepare_to_npu,

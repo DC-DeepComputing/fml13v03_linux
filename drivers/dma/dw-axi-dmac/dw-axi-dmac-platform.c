@@ -1826,9 +1826,6 @@ static int dw_probe(struct platform_device *pdev)
 
 	dev_info(chip->dev, "DesignWare AXI DMA Controller, %d channels\n",
 		 dw->hdata->nr_channels);
-	ret = axi_dma_suspend(chip);
-	if (ret < 0)
-		goto err_pm_disable;
 
 	dw_axi_dma_register_debugfs(chip);
 
@@ -1923,7 +1920,7 @@ static struct platform_driver dw_driver = {
 	.driver = {
 		.name	= KBUILD_MODNAME,
 		.of_match_table = dw_dma_of_id_table,
-		.pm = &dw_axi_dma_pm_ops,
+		.pm = pm_sleep_ptr(&dw_axi_dma_pm_ops),
 	},
 };
 module_platform_driver(dw_driver);

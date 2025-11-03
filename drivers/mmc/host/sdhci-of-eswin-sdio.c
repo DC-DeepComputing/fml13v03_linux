@@ -37,7 +37,6 @@
 #include "sdhci-eswin.h"
 
 #define ESWIN_SDHCI_SD_CQE_BASE_ADDR 0x180
-#define TUNING_RANGE_THRESHOLD   40
 
 static inline void *sdhci_sdio_priv(struct eswin_sdhci_data *sdio)
 {
@@ -427,7 +426,9 @@ clk_aclk_disable:
 
 	return ret;
 }
+#endif
 
+#ifdef CONFIG_PM
 static int eswin_sdhci_sdio_runtime_suspend(struct device *dev)
 {
 	struct sdhci_host *host = dev_get_drvdata(dev);
@@ -1119,7 +1120,7 @@ static struct platform_driver eswin_sdhci_sdio_driver = {
 		.name = "eswin-sdhci-sdio",
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.of_match_table = eswin_sdhci_sdio_of_match,
-		.pm = &eswin_sdhci_sdio_pmops,
+		.pm = pm_sleep_ptr(&eswin_sdhci_sdio_pmops),
 	},
 	.probe = eswin_sdhci_sdio_probe,
 	.remove = eswin_sdhci_sdio_remove,

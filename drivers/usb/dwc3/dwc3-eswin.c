@@ -550,6 +550,7 @@ static int dwc3_eswin_probe(struct platform_device *pdev)
 
 	dwc_usb_clk_init(dev);
 	dwc3_rx_equalization_init(dev);
+
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
 	ret = pm_runtime_get_sync(dev);
@@ -859,7 +860,7 @@ static struct platform_driver dwc3_eswin_driver = {
 	.remove		= dwc3_eswin_remove,
 	.driver		= {
 		.name	= "eswin-dwc3",
-		.pm	= DEV_PM_OPS,
+		.pm	= pm_sleep_ptr(DEV_PM_OPS),
 		.of_match_table = eswin_dwc3_match,
 	},
 };

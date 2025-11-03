@@ -294,14 +294,15 @@ static int eswin_timer_probe(struct platform_device *pdev)
         return PTR_ERR(time->mmio_base);
 
     irq = platform_get_irq(pdev, 0);
-    if (irq < 0)
-        return -ENXIO;
-
-    error = devm_request_irq(&pdev->dev, irq, timer_irq_handler, 0,
-                                pdev->name, time);
-    if (error) {
-        dev_err(&pdev->dev, "could not request IRQ %d\n", irq);
-        return error;
+    if (irq >= 0) {
+        error = devm_request_irq(&pdev->dev, irq, timer_irq_handler, 0,
+                                 pdev->name, time);
+        if (error) {
+            dev_err(&pdev->dev, "could not request IRQ %d\n", irq);
+            return error;
+        }
+    } else {
+        dev_info(&pdev->dev, "probe without interrupt\n");
     }
 
     ret = timer_init(time, np);
@@ -362,7 +363,7 @@ static struct platform_driver eswin_timer_driver = {
     .driver = {
         .name = "eswin-timer",
         .of_match_table = of_match_ptr(eswin_timer_of_match),
-        .pm = &eswin_timer_pm_ops,
+        .pm = pm_sleep_ptr(&eswin_timer_pm_ops),
     },
 };
 module_platform_driver(eswin_timer_driver);

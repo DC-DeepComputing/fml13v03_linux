@@ -334,6 +334,9 @@ static int es_drm_bind(struct device *dev)
 
 	drm_fbdev_generic_setup(drm_dev, 32);
 
+	/* Disable VT switch for suspend/resume */
+	pm_set_vt_switch(0);
+
 	ret = of_property_read_u32(dev->of_node, "numa-node-id", &id);
 	if (ret) {
 		DRM_DEV_ERROR(dev, "Failed to read index property, ret = %d\n",
@@ -342,6 +345,7 @@ static int es_drm_bind(struct device *dev)
 	}
 	DRM_INFO("drm dev is on die%d\n", id);
 	priv->die_id = id;
+
 	priv->mmu_constructed = false;
 
 	if (drm_dev->unique) {
@@ -413,7 +417,7 @@ static int es_drm_of_component_probe(struct device *dev,
 
 	ret = of_reserved_mem_device_init(dev);
 	if (ret) {
-		dev_info(dev, "No memory-region specified, use system cma, ret:%d\n", ret);
+		dev_dbg(dev, "No memory-region specified, use system cma, ret:%d\n", ret);
 	}
 
 	/*
@@ -591,7 +595,7 @@ static struct platform_driver es_drm_platform_driver = {
     .driver = {
         .name = DRV_NAME,
         .of_match_table = es_drm_dt_ids,
-        .pm = &es_drm_pm_ops,
+        .pm = pm_sleep_ptr(&es_drm_pm_ops),
     },
 };
 

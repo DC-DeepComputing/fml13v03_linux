@@ -478,10 +478,12 @@ static void es_dc_enable(struct device *dev, struct drm_crtc *crtc)
 	else
 		dc_hw_set_out(&dc->hw, OUT_DP);
 
+
 	if (crtc_state->mmu_prefetch == ES_MMU_PREFETCH_ENABLE)
 		dc_hw_enable_mmu_prefetch(&dc->hw, true);
 	else
 		dc_hw_enable_mmu_prefetch(&dc->hw, false);
+
 
 	dc_hw_setup_display(&dc->hw, &display);
 	cursor.enable = false;
@@ -1062,7 +1064,6 @@ static const struct es_dc_funcs dc_funcs = {
 static int dc_bind(struct device *dev, struct device *master, void *data)
 {
 	struct drm_device *drm_dev = data;
-	struct platform_device *pdev = to_platform_device(dev);
 	struct es_drm_private *priv = drm_dev->dev_private;
 	struct es_dc *dc = dev_get_drvdata(dev);
 	struct device_node *port;
@@ -1083,23 +1084,13 @@ static int dc_bind(struct device *dev, struct device *master, void *data)
 		dev_err(dev, "Failed to initialize DC hardware.\n");
 		return ret;
 	}
-
-	if (!dc->irq) {
-		dc->irq = platform_get_irq(pdev, 0);
-		ret = devm_request_irq(dev, dc->irq, dc_isr, 0, dev_name(dev),
-				       dc);
-		if (ret < 0) {
-			dev_err(dev, "Failed to install irq:%u.\n", dc->irq);
-			return ret;
-		}
-	}
-
 	if (priv->mmu_constructed == false) {
 		ret = dc_mmu_construct(priv->dma_dev, &priv->mmu);
 		if (ret) {
 			dev_err(dev, "failed to construct DC MMU\n");
 			goto err_clean_dc;
 		}
+
 		priv->mmu_constructed = true;
 	}
 	ret = dc_hw_mmu_init(&dc->hw, priv->mmu);
@@ -1210,7 +1201,7 @@ static int dc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct es_dc *dc;
-	int irq, ret, die_id;
+	int ret, die_id;
 
 	dc = devm_kzalloc(dev, sizeof(*dc), GFP_KERNEL);
 	if (!dc)
@@ -1227,6 +1218,13 @@ static int dc_probe(struct platform_device *pdev)
 	dc->hw.reg_base = devm_platform_ioremap_resource(pdev, 2);
 	if (IS_ERR(dc->hw.reg_base))
 		return PTR_ERR(dc->hw.reg_base);
+	
+	dc->irq = platform_get_irq(pdev, 0);
+	ret = devm_request_irq(dev, dc->irq, dc_isr, 0, dev_name(dev), dc);
+	if (ret < 0) {
+		dev_err(dev, "Failed to install irq:%u.\n", dc->irq);
+		return ret;
+	}
 
 	dc->vo_mux = devm_clk_get(dev, "vo_mux");
 	if (IS_ERR(dc->vo_mux)) {

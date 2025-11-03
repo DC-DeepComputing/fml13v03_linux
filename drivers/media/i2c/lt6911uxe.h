@@ -1,5 +1,12 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-/* Copyright (C) 2023 Intel Corporation */
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * LT6911UXE Sensor Driver Header File for EIC7700 SoC
+ *
+ * Copyright 2025, Beijing ESWIN Computing Technology Co., Ltd.. All rights reserved.
+ *
+ * Authors: Junfa Sun <sunjunfa@eswincomputing.com>
+ *          Yulin Lu <luyulin@eswincomputing.com>
+ */
 
 #ifndef __LT6911UXE_H
 #define __LT6911UXE_H
