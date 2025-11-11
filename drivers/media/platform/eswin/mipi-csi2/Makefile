@@ -2,9 +2,9 @@
 #
 # Makefile for Synopsys DWC Platform drivers
 #
-# ifeq ($(CONFIG_DWC_MIPI_TC_DPHY_GEN3),y)#
-# 	dw-csi-objs += dw-csi-sysfs.o
-# endif
+ifeq ($(CONFIG_DWC_MIPI_TC_DPHY_GEN3),y)#
+ 	dw-csi-objs += dw-csi-sysfs.o
+endif
 obj-$(CONFIG_DWC_MIPI_CSI2_HOST) += dw-csi.o
 dw-csi-objs := dw-csi-plat.o dw-mipi-csi.o
 
