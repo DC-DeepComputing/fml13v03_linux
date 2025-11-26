@@ -1412,7 +1412,6 @@ static int es_dvp2axi_csi_stream_start(struct es_dvp2axi_stream *stream,
 	enum v4l2_mbus_type mbus_type = active_sensor->mbus.type;
 	struct csi_channel_info *channel;
 	u32 ret = 0;
-	int i;
 
 	if (stream->state < ES_DVP2AXI_STATE_STREAMING) {
 		stream->frame_idx = 0;
@@ -1739,7 +1738,6 @@ static void es_dvp2axi_detach_sync_mode(struct es_dvp2axi_device *dvp2axi_dev)
 void es_dvp2axi_do_stop_stream(struct es_dvp2axi_stream *stream,
 			  enum es_dvp2axi_stream_mode mode)
 {
-	struct es_dvp2axi_vdev_node *node = &stream->vnode;
 	struct es_dvp2axi_device *dev = stream->dvp2axidev;
 	struct v4l2_device *v4l2_dev = &dev->v4l2_dev;
 	struct es_dvp2axi_buffer *buf = NULL;

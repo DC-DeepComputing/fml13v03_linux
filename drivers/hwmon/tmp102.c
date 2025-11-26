@@ -254,7 +254,7 @@ static int tmp102_probe(struct i2c_client *client)
 		return err;
 	}
 	if(device_property_read_string(dev, "label", &tmp102->label)) {
-		strcpy(tmp102->label, "temp1");
+		strcpy((char *)tmp102->label, "temp1");
 	}
 
 	/*

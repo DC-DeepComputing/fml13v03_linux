@@ -316,6 +316,7 @@ int eswin_get_ddr_temp(const char *name, int numa_id, long *val)
 }
 EXPORT_SYMBOL_GPL(eswin_get_ddr_temp);
 
+#if 0
 static int eswin_get_cpu_onedie_temp(const char *name, int numa_id, long *val)
 {
 	struct pvt_hwmon *pvt = NULL;
@@ -328,6 +329,7 @@ static int eswin_get_cpu_onedie_temp(const char *name, int numa_id, long *val)
 	}
 	return ret;
 }
+#endif
 
 int eswin_get_cpu_temp(const char *name, int numa_id, long *val)
 {
