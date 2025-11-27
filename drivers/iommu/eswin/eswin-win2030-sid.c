@@ -121,7 +121,7 @@ void print_tcu_node_status(const char *call_name, int call_line, int nid);
 static int __init tcu_proc_init(void);
 
 static int g_nodes_cnt = 0;
-static int win2030_tbu_power_all(int nid, bool is_powerUp);
+//static int win2030_tbu_power_all(int nid, bool is_powerUp);
 
 int win2030_dynm_sid_enable(int nid)
 {
@@ -824,6 +824,7 @@ static int win2030_get_tbu_priv(int nid, u32 tbu_id, struct tbu_priv **tbu_priv_
 	return -1;
 }
 
+#if 0
 static int win2030_tbu_power_all(int nid, bool is_powerUp)
 {
 
@@ -842,6 +843,8 @@ static int win2030_tbu_power_all(int nid, bool is_powerUp)
 
 	return 0;
 }
+#endif
+
 /***********************************************************************************************
    win2030_tbu_power(struct device *dev, bool is_powerUp) is for powering up or down
    the tbus of the device module which is under smmu.
