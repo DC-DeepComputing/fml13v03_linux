@@ -80,6 +80,8 @@
 #endif
 
 
+extern int frame_timeout;
+
 MODULE_IMPORT_NS(DMA_BUF);
 #define DRIVER_NAME "eswin_npu"
 
@@ -1007,11 +1009,19 @@ int __maybe_unused npu_suspend(struct device *dev)
 	struct nvdla_device *nvdla_dev = dev_get_drvdata(dev);
 	struct win_engine *engine = (struct win_engine *)nvdla_dev->win_engine;
 	int is_enable = 0;
-	int ret = 0;
+	int ret;
+
 	nvdla_dev->is_suspend = true;
-	wait_event_interruptible_timeout(nvdla_dev->event_wq,
+	ret = wait_event_interruptible_timeout(nvdla_dev->event_wq,
 		((engine->tiktok_frame[0] == NULL) && (engine->tiktok_frame[1] == NULL)),
-		msecs_to_jiffies(200));
+		msecs_to_jiffies(frame_timeout));
+	if (ret == 0) {
+        dev_err(dev, "Timeout waiting for frame done\n");
+        return -ETIMEDOUT;
+    } else if (ret < 0) {
+        dev_err(dev, "Wait error: %d\n", ret);
+        return ret;
+    }
 
 	dev_dbg(dev, "%s\n", __func__);
 	ret = npu_hardware_reset(NULL);
